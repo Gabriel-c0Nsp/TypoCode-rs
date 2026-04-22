@@ -14,7 +14,7 @@ use ratatui::{
 };
 
 use crate::file::SourceFile;
-use crate::text::{Pages, paginate, wrap_content};
+use crate::text::{Pages, gutter_labels, paginate, wrap_content};
 
 /// Combined keyboard / tick poll interval. A tick fires whenever
 /// `event::poll` returns `false` after this many milliseconds, which
@@ -116,28 +116,54 @@ impl App {
     }
 
     fn view(&mut self, frame: &mut Frame) {
-        let [body_area, footer_area] =
+        let [main_area, footer_area] =
             Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
+
+        let gutter_width = gutter_column_width(self.source.line_count);
+        let [gutter_area, body_area] =
+            Layout::horizontal([Constraint::Length(gutter_width), Constraint::Min(0)])
+                .areas(main_area);
 
         self.ensure_paginated(body_area.height, body_area.width);
 
-        let (body_text, footer_text) = match &self.pages {
+        let (gutter_text, body_text, footer_text) = match &self.pages {
             Some(pages) => {
-                let rows = wrap_content(&pages.current().content, body_area.width as usize);
-                let joined = rows
+                let page = pages.current();
+                let rows = wrap_content(&page.content, body_area.width as usize);
+                let labels =
+                    gutter_labels(&page.content, body_area.width as usize, page.line_start);
+                let digit_width = (gutter_width.saturating_sub(1)) as usize;
+                let gutter = labels
+                    .iter()
+                    .map(|label| match label {
+                        Some(n) => format!("{n:>digit_width$} "),
+                        None => " ".repeat(digit_width + 1),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let body = rows
                     .iter()
                     .map(|row| row.iter().collect::<String>())
                     .collect::<Vec<_>>()
                     .join("\n");
                 (
-                    joined,
+                    gutter,
+                    body,
                     format!("page {} / {}", pages.current_index(), pages.total()),
                 )
             }
-            None => (String::new(), String::new()),
+            None => (String::new(), String::new(), String::new()),
         };
 
+        frame.render_widget(Paragraph::new(gutter_text), gutter_area);
         frame.render_widget(Paragraph::new(body_text), body_area);
         frame.render_widget(Paragraph::new(footer_text), footer_area);
     }
+}
+
+/// Reserves enough columns for the widest source-line number plus a
+/// single trailing space separating the gutter from the body.
+fn gutter_column_width(total_lines: usize) -> u16 {
+    let digits = total_lines.max(1).to_string().len() as u16;
+    digits + 1
 }
