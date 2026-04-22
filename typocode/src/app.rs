@@ -7,9 +7,14 @@ use std::time::Duration;
 
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use ratatui::{DefaultTerminal, Frame, widgets::Paragraph};
+use ratatui::{
+    DefaultTerminal, Frame,
+    layout::{Constraint, Layout},
+    widgets::Paragraph,
+};
 
 use crate::file::SourceFile;
+use crate::text::{Pages, paginate};
 
 /// Combined keyboard / tick poll interval. A tick fires whenever
 /// `event::poll` returns `false` after this many milliseconds, which
@@ -18,11 +23,15 @@ const TICK_RATE: Duration = Duration::from_millis(250);
 
 /// Top-level application state.
 ///
-/// Currently holds the loaded source file and the quit flag. Pages,
-/// cursor, stats, timer and phase are added by subsequent FR branches.
+/// Pagination is deferred to the first render so [`Pages`] can be sized
+/// against the actual viewport rather than the C version's frozen
+/// startup `LINES` value. Cursor, stats, timer and phase are added by
+/// subsequent FR branches.
 #[derive(Debug)]
 pub struct App {
     source: SourceFile,
+    pages: Option<Pages>,
+    last_viewport_rows: u16,
     should_quit: bool,
 }
 
@@ -42,6 +51,8 @@ impl App {
     pub fn new(source: SourceFile) -> Self {
         Self {
             source,
+            pages: None,
+            last_viewport_rows: 0,
             should_quit: false,
         }
     }
@@ -57,17 +68,57 @@ impl App {
         Ok(())
     }
 
+    /// Builds or rebuilds [`Pages`] whenever the viewport height
+    /// changes. Called before each render; the C version froze
+    /// pagination at startup and broke on resize — here we recompute so
+    /// layout always tracks the live row budget. The current page index
+    /// resets to 0 because page boundaries shift with the new budget,
+    /// and preserving the cursor across a reflow belongs to later FRs.
+    fn ensure_paginated(&mut self, viewport_rows: u16) {
+        if self.pages.is_some() && self.last_viewport_rows == viewport_rows {
+            return;
+        }
+        let pages = paginate(&self.source.content, viewport_rows as usize);
+        self.pages = Pages::new(pages);
+        self.last_viewport_rows = viewport_rows;
+    }
+
     fn handle_event(&mut self, event: Event) {
         if let Event::Key(key) = event
             && key.kind == KeyEventKind::Press
-            && key.code == KeyCode::Esc
         {
-            self.should_quit = true;
+            match key.code {
+                KeyCode::Esc => self.should_quit = true,
+                KeyCode::PageDown => {
+                    if let Some(pages) = self.pages.as_mut() {
+                        pages.next();
+                    }
+                }
+                KeyCode::PageUp => {
+                    if let Some(pages) = self.pages.as_mut() {
+                        pages.prev();
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
-    fn view(&self, frame: &mut Frame) {
-        let text: String = self.source.content.iter().collect();
-        frame.render_widget(Paragraph::new(text), frame.area());
+    fn view(&mut self, frame: &mut Frame) {
+        let [body_area, footer_area] =
+            Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
+
+        self.ensure_paginated(body_area.height);
+
+        let (body_text, footer_text) = match &self.pages {
+            Some(pages) => (
+                pages.current().content.iter().collect::<String>(),
+                format!("page {} / {}", pages.current_index(), pages.total()),
+            ),
+            None => (String::new(), String::new()),
+        };
+
+        frame.render_widget(Paragraph::new(body_text), body_area);
+        frame.render_widget(Paragraph::new(footer_text), footer_area);
     }
 }
