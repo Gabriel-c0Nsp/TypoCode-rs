@@ -4,5 +4,6 @@
 //! embedders drive the app through these modules directly. Modules are
 //! added as the FR (functional requirement) that needs them lands.
 
+pub mod app;
 pub mod errors;
 pub mod logging;
