@@ -14,7 +14,7 @@ use ratatui::{
 };
 
 use crate::file::SourceFile;
-use crate::text::{Pages, paginate};
+use crate::text::{Pages, paginate, wrap_content};
 
 /// Combined keyboard / tick poll interval. A tick fires whenever
 /// `event::poll` returns `false` after this many milliseconds, which
@@ -122,10 +122,18 @@ impl App {
         self.ensure_paginated(body_area.height, body_area.width);
 
         let (body_text, footer_text) = match &self.pages {
-            Some(pages) => (
-                pages.current().content.iter().collect::<String>(),
-                format!("page {} / {}", pages.current_index(), pages.total()),
-            ),
+            Some(pages) => {
+                let rows = wrap_content(&pages.current().content, body_area.width as usize);
+                let joined = rows
+                    .iter()
+                    .map(|row| row.iter().collect::<String>())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                (
+                    joined,
+                    format!("page {} / {}", pages.current_index(), pages.total()),
+                )
+            }
             None => (String::new(), String::new()),
         };
 
