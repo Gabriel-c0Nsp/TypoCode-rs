@@ -5,6 +5,10 @@
 //! player is currently typing through. Render and input layers consume
 //! these types without touching the filesystem or the terminal.
 
+pub mod pagination;
+
+pub use pagination::paginate;
+
 /// A single page of expanded source text.
 ///
 /// `content` holds the characters to render (tabs already expanded by
