@@ -13,15 +13,15 @@
 //! always makes forward progress; empty input yields an empty page
 //! list.
 
-use super::Page;
 use super::wrap::visual_rows_for_line;
+use super::{Cell, Page};
 
 /// Splits `content` into pages.
 ///
 /// `rows_per_page` is the page's visual-row budget (body area height);
 /// `cols` is the body area width used to compute per-source-line wrap.
 /// The returned pages cover `content` end-to-end without gaps or
-/// overlap: concatenating their `content` fields reproduces the input.
+/// overlap: concatenating their cells' chars reproduces the input.
 pub fn paginate(content: &[char], rows_per_page: usize, cols: usize) -> Vec<Page> {
     let rows = rows_per_page.max(1);
     let cols = cols.max(1);
@@ -30,56 +30,56 @@ pub fn paginate(content: &[char], rows_per_page: usize, cols: usize) -> Vec<Page
         return pages;
     }
 
-    let mut page_chars: Vec<char> = Vec::new();
+    let mut page_cells: Vec<Cell> = Vec::new();
     let mut page_rows = 0usize;
     let mut line_start = 1usize;
     // Line number the next character belongs to.
     let mut line_cursor = 1usize;
-    let mut current_line: Vec<char> = Vec::new();
+    let mut current_line: Vec<Cell> = Vec::new();
 
     for &c in content {
         if c == '\n' {
             let line_rows = visual_rows_for_line(current_line.len(), cols);
-            if !page_chars.is_empty() && page_rows + line_rows > rows {
+            if !page_cells.is_empty() && page_rows + line_rows > rows {
                 pages.push(Page {
-                    content: std::mem::take(&mut page_chars),
+                    cells: std::mem::take(&mut page_cells),
                     line_start,
                     line_end: line_cursor - 1,
                 });
                 line_start = line_cursor;
                 page_rows = 0;
             }
-            page_chars.append(&mut current_line);
-            page_chars.push('\n');
+            page_cells.append(&mut current_line);
+            page_cells.push(Cell::pending('\n'));
             page_rows += line_rows;
             line_cursor += 1;
         } else {
-            current_line.push(c);
+            current_line.push(Cell::pending(c));
         }
     }
 
     // Trailing partial line with no terminating newline.
     if !current_line.is_empty() {
         let line_rows = visual_rows_for_line(current_line.len(), cols);
-        if !page_chars.is_empty() && page_rows + line_rows > rows {
+        if !page_cells.is_empty() && page_rows + line_rows > rows {
             pages.push(Page {
-                content: std::mem::take(&mut page_chars),
+                cells: std::mem::take(&mut page_cells),
                 line_start,
                 line_end: line_cursor - 1,
             });
             line_start = line_cursor;
         }
-        page_chars.append(&mut current_line);
+        page_cells.append(&mut current_line);
     }
 
-    if !page_chars.is_empty() {
-        let line_end = if page_chars.last() == Some(&'\n') {
+    if !page_cells.is_empty() {
+        let line_end = if page_cells.last().map(|c| c.ch) == Some('\n') {
             line_cursor - 1
         } else {
             line_cursor
         };
         pages.push(Page {
-            content: page_chars,
+            cells: page_cells,
             line_start,
             line_end,
         });
@@ -96,6 +96,10 @@ mod tests {
         s.chars().collect()
     }
 
+    fn page_chars(page: &Page) -> Vec<char> {
+        page.cells.iter().map(|c| c.ch).collect()
+    }
+
     #[test]
     fn empty_input_yields_no_pages() {
         assert!(paginate(&[], 5, 80).is_empty());
@@ -105,7 +109,7 @@ mod tests {
     fn single_line_without_newline_is_one_page() {
         let pages = paginate(&chars("hello"), 3, 80);
         assert_eq!(pages.len(), 1);
-        assert_eq!(pages[0].content, chars("hello"));
+        assert_eq!(page_chars(&pages[0]), chars("hello"));
         assert_eq!(pages[0].line_start, 1);
         assert_eq!(pages[0].line_end, 1);
     }
@@ -114,7 +118,7 @@ mod tests {
     fn single_line_with_trailing_newline_is_one_page() {
         let pages = paginate(&chars("hello\n"), 3, 80);
         assert_eq!(pages.len(), 1);
-        assert_eq!(pages[0].content, chars("hello\n"));
+        assert_eq!(page_chars(&pages[0]), chars("hello\n"));
         assert_eq!(pages[0].line_end, 1);
     }
 
@@ -130,10 +134,10 @@ mod tests {
     fn splits_when_exceeding_budget() {
         let pages = paginate(&chars("a\nb\nc\nd"), 2, 80);
         assert_eq!(pages.len(), 2);
-        assert_eq!(pages[0].content, chars("a\nb\n"));
+        assert_eq!(page_chars(&pages[0]), chars("a\nb\n"));
         assert_eq!(pages[0].line_start, 1);
         assert_eq!(pages[0].line_end, 2);
-        assert_eq!(pages[1].content, chars("c\nd"));
+        assert_eq!(page_chars(&pages[1]), chars("c\nd"));
         assert_eq!(pages[1].line_start, 3);
         assert_eq!(pages[1].line_end, 4);
     }
@@ -142,8 +146,8 @@ mod tests {
     fn rows_per_page_zero_is_clamped_to_one() {
         let pages = paginate(&chars("a\nb\n"), 0, 80);
         assert_eq!(pages.len(), 2);
-        assert_eq!(pages[0].content, chars("a\n"));
-        assert_eq!(pages[1].content, chars("b\n"));
+        assert_eq!(page_chars(&pages[0]), chars("a\n"));
+        assert_eq!(page_chars(&pages[1]), chars("b\n"));
     }
 
     #[test]
@@ -152,7 +156,7 @@ mod tests {
         let pages = paginate(&input, 2, 80);
         let rejoined: Vec<char> = pages
             .iter()
-            .flat_map(|p| p.content.iter().copied())
+            .flat_map(|p| p.cells.iter().map(|c| c.ch))
             .collect();
         assert_eq!(rejoined, input);
     }
@@ -168,39 +172,38 @@ mod tests {
 
     #[test]
     fn wrapped_line_consumes_multiple_visual_rows() {
-        // One source line of 6 chars at cols=3 wraps to 2 visual rows,
-        // filling a rows=2 page on its own. The second line starts on
-        // a new page.
         let pages = paginate(&chars("abcdef\nx"), 2, 3);
         assert_eq!(pages.len(), 2);
-        assert_eq!(pages[0].content, chars("abcdef\n"));
+        assert_eq!(page_chars(&pages[0]), chars("abcdef\n"));
         assert_eq!((pages[0].line_start, pages[0].line_end), (1, 1));
-        assert_eq!(pages[1].content, chars("x"));
+        assert_eq!(page_chars(&pages[1]), chars("x"));
         assert_eq!((pages[1].line_start, pages[1].line_end), (2, 2));
     }
 
     #[test]
     fn line_longer_than_budget_gets_its_own_overflowing_page() {
-        // A single source line of 12 chars at cols=3 would take 4 visual
-        // rows. With rows=2 it overflows, but we don't split it — the
-        // page contains exactly that line so the gutter counter stays
-        // aligned with source-line numbers.
         let pages = paginate(&chars("abcdefghijkl\nfoo"), 2, 3);
         assert_eq!(pages.len(), 2);
-        assert_eq!(pages[0].content, chars("abcdefghijkl\n"));
+        assert_eq!(page_chars(&pages[0]), chars("abcdefghijkl\n"));
         assert_eq!((pages[0].line_start, pages[0].line_end), (1, 1));
-        assert_eq!(pages[1].content, chars("foo"));
+        assert_eq!(page_chars(&pages[1]), chars("foo"));
     }
 
     #[test]
     fn blank_line_still_occupies_one_row() {
-        // "a\n\nb\nc" — four source lines (a, empty, b, c) each taking 1
-        // visual row, rows=2 budget splits 2+2.
         let pages = paginate(&chars("a\n\nb\nc"), 2, 80);
         assert_eq!(pages.len(), 2);
-        assert_eq!(pages[0].content, chars("a\n\n"));
+        assert_eq!(page_chars(&pages[0]), chars("a\n\n"));
         assert_eq!((pages[0].line_start, pages[0].line_end), (1, 2));
-        assert_eq!(pages[1].content, chars("b\nc"));
+        assert_eq!(page_chars(&pages[1]), chars("b\nc"));
         assert_eq!((pages[1].line_start, pages[1].line_end), (3, 4));
+    }
+
+    #[test]
+    fn cells_start_in_pending_state() {
+        let pages = paginate(&chars("hi"), 3, 80);
+        for cell in &pages[0].cells {
+            assert_eq!(cell.state, super::super::CellState::Pending);
+        }
     }
 }

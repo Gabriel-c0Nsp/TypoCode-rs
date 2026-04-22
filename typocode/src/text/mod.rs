@@ -48,15 +48,24 @@ impl Cell {
 
 /// A single page of expanded source text.
 ///
-/// `content` holds the characters to render (tabs already expanded by
-/// the file loader). `line_start` and `line_end` are the inclusive
-/// 1-based source-line range this page spans — used by the line-number
-/// gutter (FR-05) so visual wraps don't disturb the counter.
+/// `cells` holds the expected characters (tabs already expanded by the
+/// file loader) paired with their current typing state. `line_start`
+/// and `line_end` are the inclusive 1-based source-line range this
+/// page spans — used by the line-number gutter (FR-05) so visual wraps
+/// don't disturb the counter.
 #[derive(Debug, Clone)]
 pub struct Page {
-    pub content: Vec<char>,
+    pub cells: Vec<Cell>,
     pub line_start: usize,
     pub line_end: usize,
+}
+
+impl Page {
+    /// Collects the page's expected characters into a fresh `Vec<char>`
+    /// for layout helpers that don't care about state.
+    pub fn chars(&self) -> Vec<char> {
+        self.cells.iter().map(|c| c.ch).collect()
+    }
 }
 
 /// Ordered collection of [`Page`]s plus the currently displayed index.
@@ -118,7 +127,7 @@ mod tests {
 
     fn page(content: &str, line_start: usize, line_end: usize) -> Page {
         Page {
-            content: content.chars().collect(),
+            cells: content.chars().map(Cell::pending).collect(),
             line_start,
             line_end,
         }

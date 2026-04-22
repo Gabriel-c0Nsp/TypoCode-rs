@@ -129,9 +129,9 @@ impl App {
         let (gutter_text, body_text, footer_text) = match &self.pages {
             Some(pages) => {
                 let page = pages.current();
-                let rows = wrap_content(&page.content, body_area.width as usize);
-                let labels =
-                    gutter_labels(&page.content, body_area.width as usize, page.line_start);
+                let page_chars = page.chars();
+                let rows = wrap_content(&page_chars, body_area.width as usize);
+                let labels = gutter_labels(&page_chars, body_area.width as usize, page.line_start);
                 let digit_width = (gutter_width.saturating_sub(1)) as usize;
                 let gutter = labels
                     .iter()
