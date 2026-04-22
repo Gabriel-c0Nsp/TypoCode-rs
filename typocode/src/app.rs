@@ -10,6 +10,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{DefaultTerminal, Frame, widgets::Paragraph};
 
 use crate::file::SourceFile;
+use crate::text::{Pages, paginate};
 
 /// Combined keyboard / tick poll interval. A tick fires whenever
 /// `event::poll` returns `false` after this many milliseconds, which
@@ -18,11 +19,14 @@ const TICK_RATE: Duration = Duration::from_millis(250);
 
 /// Top-level application state.
 ///
-/// Currently holds the loaded source file and the quit flag. Pages,
-/// cursor, stats, timer and phase are added by subsequent FR branches.
+/// Pagination is deferred to the first render so [`Pages`] can be sized
+/// against the actual viewport rather than the C version's frozen
+/// startup `LINES` value. Cursor, stats, timer and phase are added by
+/// subsequent FR branches.
 #[derive(Debug)]
 pub struct App {
     source: SourceFile,
+    pages: Option<Pages>,
     should_quit: bool,
 }
 
@@ -42,19 +46,34 @@ impl App {
     pub fn new(source: SourceFile) -> Self {
         Self {
             source,
+            pages: None,
             should_quit: false,
         }
     }
 
     fn run_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.should_quit {
-            terminal.draw(|frame| self.view(frame))?;
+            terminal.draw(|frame| {
+                self.ensure_paginated(frame.area().height);
+                self.view(frame);
+            })?;
 
             if event::poll(TICK_RATE)? {
                 self.handle_event(event::read()?);
             }
         }
         Ok(())
+    }
+
+    /// Builds or keeps the [`Pages`] for the current viewport height.
+    /// Called before each render; the C version froze pagination at
+    /// startup and broke when the terminal was resized — here we always
+    /// match the live row budget.
+    fn ensure_paginated(&mut self, viewport_rows: u16) {
+        if self.pages.is_none() {
+            let pages = paginate(&self.source.content, viewport_rows as usize);
+            self.pages = Pages::new(pages);
+        }
     }
 
     fn handle_event(&mut self, event: Event) {
@@ -67,7 +86,10 @@ impl App {
     }
 
     fn view(&self, frame: &mut Frame) {
-        let text: String = self.source.content.iter().collect();
+        let text: String = match &self.pages {
+            Some(pages) => pages.current().content.iter().collect(),
+            None => String::new(),
+        };
         frame.render_widget(Paragraph::new(text), frame.area());
     }
 }
