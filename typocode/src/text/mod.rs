@@ -12,7 +12,7 @@ pub use pagination::paginate;
 /// A single page of expanded source text.
 ///
 /// `content` holds the characters to render (tabs already expanded by
-/// [`crate::file::parse`]). `line_start` and `line_end` are the inclusive
+/// the file loader). `line_start` and `line_end` are the inclusive
 /// 1-based source-line range this page spans — used by the line-number
 /// gutter (FR-05) so visual wraps don't disturb the counter.
 #[derive(Debug, Clone)]
