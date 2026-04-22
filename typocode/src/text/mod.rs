@@ -11,6 +11,41 @@ pub mod wrap;
 pub use pagination::paginate;
 pub use wrap::{gutter_labels, visual_rows_for_line, wrap as wrap_content};
 
+/// Per-character state of a [`Cell`].
+///
+/// Every cell starts `Pending` and transitions to `Correct` or `Wrong`
+/// when the typing engine advances past it. `Wrong` is latched — the
+/// player must backspace to clear a mistake, which resets the cell to
+/// `Pending` again. Colour styling lives in the render layer (FR-03);
+/// the state enum only encodes what happened, not how it looks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellState {
+    Pending,
+    Correct,
+    Wrong,
+}
+
+/// One typeable character plus the state of the player's last pass
+/// through it. Pagination, wrap and gutter helpers treat a cell's `ch`
+/// the same way they treated a raw `char` — layout is independent of
+/// state — so [`wrap`](crate::text::wrap) continues to own visual-row
+/// structure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cell {
+    pub ch: char,
+    pub state: CellState,
+}
+
+impl Cell {
+    /// Constructs a fresh cell for `ch` that hasn't been typed yet.
+    pub fn pending(ch: char) -> Self {
+        Self {
+            ch,
+            state: CellState::Pending,
+        }
+    }
+}
+
 /// A single page of expanded source text.
 ///
 /// `content` holds the characters to render (tabs already expanded by
