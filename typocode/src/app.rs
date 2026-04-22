@@ -85,9 +85,21 @@ impl App {
     fn handle_event(&mut self, event: Event) {
         if let Event::Key(key) = event
             && key.kind == KeyEventKind::Press
-            && key.code == KeyCode::Esc
         {
-            self.should_quit = true;
+            match key.code {
+                KeyCode::Esc => self.should_quit = true,
+                KeyCode::PageDown => {
+                    if let Some(pages) = self.pages.as_mut() {
+                        pages.next();
+                    }
+                }
+                KeyCode::PageUp => {
+                    if let Some(pages) = self.pages.as_mut() {
+                        pages.prev();
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
