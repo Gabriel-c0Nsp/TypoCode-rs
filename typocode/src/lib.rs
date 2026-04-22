@@ -10,3 +10,4 @@ pub mod errors;
 pub mod file;
 pub mod logging;
 pub mod text;
+pub mod update;

@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use color_eyre::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event};
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Layout},
@@ -15,6 +15,7 @@ use ratatui::{
 
 use crate::file::SourceFile;
 use crate::text::{Pages, gutter_labels, paginate, wrap_content};
+use crate::update::{self, Msg};
 
 /// Combined keyboard / tick poll interval. A tick fires whenever
 /// `event::poll` returns `false` after this many milliseconds, which
@@ -119,23 +120,23 @@ impl App {
     }
 
     fn handle_event(&mut self, event: Event) {
-        if let Event::Key(key) = event
-            && key.kind == KeyEventKind::Press
-        {
-            match key.code {
-                KeyCode::Esc => self.should_quit = true,
-                KeyCode::PageDown => {
-                    if let Some(pages) = self.pages.as_mut() {
-                        pages.next();
-                    }
-                }
-                KeyCode::PageUp => {
-                    if let Some(pages) = self.pages.as_mut() {
-                        pages.prev();
-                    }
-                }
-                _ => {}
-            }
+        let Some(msg) = update::from_key_event(&event) else {
+            return;
+        };
+        self.dispatch(msg);
+    }
+
+    fn dispatch(&mut self, msg: Msg) {
+        if matches!(msg, Msg::Quit) {
+            self.should_quit = true;
+            return;
+        }
+        let Some(pages) = self.pages.as_mut() else {
+            return;
+        };
+        let outcome = update::update(pages, &mut self.cursor, msg);
+        if outcome.should_quit {
+            self.should_quit = true;
         }
     }
 
