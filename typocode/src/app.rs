@@ -21,16 +21,38 @@ use crate::text::{Pages, gutter_labels, paginate, wrap_content};
 /// later FR branches use to drive the timer widget.
 const TICK_RATE: Duration = Duration::from_millis(250);
 
+/// Player's position within the current page's cells plus any wrong
+/// characters typed past the expected position.
+///
+/// `cu_ptr` is the index of the next cell the player is expected to
+/// type. `extras` holds wrong characters typed past `cu_ptr` — the C
+/// version's `offset` counter, promoted here into an owned buffer so
+/// the renderer can draw them verbatim. Extras must be cleared via
+/// backspace before typing can advance again.
+#[derive(Debug, Default)]
+pub struct Cursor {
+    pub cu_ptr: usize,
+    pub extras: Vec<char>,
+}
+
+impl Cursor {
+    pub fn reset(&mut self) {
+        self.cu_ptr = 0;
+        self.extras.clear();
+    }
+}
+
 /// Top-level application state.
 ///
 /// Pagination is deferred to the first render so [`Pages`] can be sized
 /// against the actual viewport rather than the C version's frozen
-/// startup `LINES` value. Cursor, stats, timer and phase are added by
+/// startup `LINES` value. Stats, timer and phase are added by
 /// subsequent FR branches.
 #[derive(Debug)]
 pub struct App {
     source: SourceFile,
     pages: Option<Pages>,
+    cursor: Cursor,
     last_viewport_rows: u16,
     last_viewport_cols: u16,
     should_quit: bool,
@@ -53,6 +75,7 @@ impl App {
         Self {
             source,
             pages: None,
+            cursor: Cursor::default(),
             last_viewport_rows: 0,
             last_viewport_cols: 0,
             should_quit: false,
@@ -90,6 +113,7 @@ impl App {
             viewport_cols as usize,
         );
         self.pages = Pages::new(pages);
+        self.cursor.reset();
         self.last_viewport_rows = viewport_rows;
         self.last_viewport_cols = viewport_cols;
     }
