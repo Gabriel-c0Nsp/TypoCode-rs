@@ -96,6 +96,17 @@ impl Pages {
         &self.pages[self.current]
     }
 
+    /// Mutable access to the current page — needed by the update layer
+    /// to mark cell states as the player types through them.
+    pub fn current_mut(&mut self) -> &mut Page {
+        &mut self.pages[self.current]
+    }
+
+    /// Whether the current page is the last one.
+    pub fn is_last(&self) -> bool {
+        self.current + 1 == self.pages.len()
+    }
+
     /// 1-based index of the current page, for display in the footer.
     pub fn current_index(&self) -> usize {
         self.current + 1
