@@ -7,7 +7,11 @@ use std::time::Duration;
 
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use ratatui::{DefaultTerminal, Frame, widgets::Paragraph};
+use ratatui::{
+    DefaultTerminal, Frame,
+    layout::{Constraint, Layout},
+    widgets::Paragraph,
+};
 
 use crate::file::SourceFile;
 use crate::text::{Pages, paginate};
@@ -55,10 +59,7 @@ impl App {
 
     fn run_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.should_quit {
-            terminal.draw(|frame| {
-                self.ensure_paginated(frame.area().height);
-                self.view(frame);
-            })?;
+            terminal.draw(|frame| self.view(frame))?;
 
             if event::poll(TICK_RATE)? {
                 self.handle_event(event::read()?);
@@ -103,11 +104,21 @@ impl App {
         }
     }
 
-    fn view(&self, frame: &mut Frame) {
-        let text: String = match &self.pages {
-            Some(pages) => pages.current().content.iter().collect(),
-            None => String::new(),
+    fn view(&mut self, frame: &mut Frame) {
+        let [body_area, footer_area] =
+            Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
+
+        self.ensure_paginated(body_area.height);
+
+        let (body_text, footer_text) = match &self.pages {
+            Some(pages) => (
+                pages.current().content.iter().collect::<String>(),
+                format!("page {} / {}", pages.current_index(), pages.total()),
+            ),
+            None => (String::new(), String::new()),
         };
-        frame.render_widget(Paragraph::new(text), frame.area());
+
+        frame.render_widget(Paragraph::new(body_text), body_area);
+        frame.render_widget(Paragraph::new(footer_text), footer_area);
     }
 }
