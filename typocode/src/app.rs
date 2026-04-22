@@ -1,20 +1,15 @@
 //! Top-level application state and run loop.
 //!
-//! TEA-inspired: the loop is `poll → handle_event → view`. The skeleton
-//! renders a placeholder screen and exits on `Esc`; real game state lands
-//! as the per-FR branches merge in.
+//! TEA-inspired: the loop is `poll → handle_event → view`. Subsequent FR
+//! branches grow the state (pages, cursor, stats, timer) and the view.
 
 use std::time::Duration;
 
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use ratatui::{
-    DefaultTerminal, Frame,
-    layout::Alignment,
-    style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::Paragraph,
-};
+use ratatui::{DefaultTerminal, Frame, widgets::Paragraph};
+
+use crate::file::SourceFile;
 
 /// Combined keyboard / tick poll interval. A tick fires whenever
 /// `event::poll` returns `false` after this many milliseconds, which
@@ -23,24 +18,34 @@ const TICK_RATE: Duration = Duration::from_millis(250);
 
 /// Top-level application state.
 ///
-/// The skeleton tracks only the quit flag. Pages, cursor, stats, timer
-/// and phase are added by subsequent FR branches.
-#[derive(Debug, Default)]
+/// Currently holds the loaded source file and the quit flag. Pages,
+/// cursor, stats, timer and phase are added by subsequent FR branches.
+#[derive(Debug)]
 pub struct App {
+    source: SourceFile,
     should_quit: bool,
 }
 
 /// Initialises a Ratatui terminal, runs the event loop until the user
 /// quits, and restores the terminal. Any error bubbles up to `main`
 /// where `color-eyre` formats it.
-pub fn run() -> Result<()> {
+pub fn run(source: SourceFile) -> Result<()> {
     let mut terminal = ratatui::init();
-    let result = App::default().run_loop(&mut terminal);
+    let result = App::new(source).run_loop(&mut terminal);
     ratatui::restore();
     result
 }
 
 impl App {
+    /// Builds an `App` ready to be driven by [`run`]. Exposed so
+    /// integration tests can construct one against a `TestBackend`.
+    pub fn new(source: SourceFile) -> Self {
+        Self {
+            source,
+            should_quit: false,
+        }
+    }
+
     fn run_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.should_quit {
             terminal.draw(|frame| self.view(frame))?;
@@ -62,15 +67,7 @@ impl App {
     }
 
     fn view(&self, frame: &mut Frame) {
-        let lines = vec![
-            Line::from(Span::styled(
-                "TypoCode",
-                Style::new().add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from("Skeleton run loop — press Esc to quit."),
-        ];
-        let paragraph = Paragraph::new(lines).alignment(Alignment::Center);
-        frame.render_widget(paragraph, frame.area());
+        let text: String = self.source.content.iter().collect();
+        frame.render_widget(Paragraph::new(text), frame.area());
     }
 }
