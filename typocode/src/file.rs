@@ -71,3 +71,42 @@ fn basename(path: &Path) -> String {
         .map(|os| os.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expands_tabs_to_two_spaces() {
+        let parsed = parse("a\tb").unwrap();
+        assert_eq!(parsed.content, vec!['a', ' ', ' ', 'b']);
+    }
+
+    #[test]
+    fn expands_back_to_back_tabs() {
+        let parsed = parse("x\t\ty").unwrap();
+        assert_eq!(parsed.content, vec!['x', ' ', ' ', ' ', ' ', 'y']);
+    }
+
+    #[test]
+    fn rejects_empty_input() {
+        let err = parse("").unwrap_err();
+        assert!(
+            err.to_string().contains("empty"),
+            "expected empty-file error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn preserves_utf8_multibyte_chars() {
+        let parsed = parse("café\n").unwrap();
+        assert_eq!(parsed.content, vec!['c', 'a', 'f', 'é', '\n']);
+    }
+
+    #[test]
+    fn counts_logical_source_lines() {
+        assert_eq!(parse("single").unwrap().line_count, 1);
+        assert_eq!(parse("a\nb\nc").unwrap().line_count, 3);
+        assert_eq!(parse("a\nb\nc\n").unwrap().line_count, 3);
+    }
+}
