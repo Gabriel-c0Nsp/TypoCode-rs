@@ -66,3 +66,82 @@ pub fn paginate(content: &[char], rows_per_page: usize) -> Vec<Page> {
 
     pages
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chars(s: &str) -> Vec<char> {
+        s.chars().collect()
+    }
+
+    #[test]
+    fn empty_input_yields_no_pages() {
+        assert!(paginate(&[], 5).is_empty());
+    }
+
+    #[test]
+    fn single_line_without_newline_is_one_page() {
+        let pages = paginate(&chars("hello"), 3);
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].content, chars("hello"));
+        assert_eq!(pages[0].line_start, 1);
+        assert_eq!(pages[0].line_end, 1);
+    }
+
+    #[test]
+    fn single_line_with_trailing_newline_is_one_page() {
+        let pages = paginate(&chars("hello\n"), 3);
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].content, chars("hello\n"));
+        assert_eq!(pages[0].line_end, 1);
+    }
+
+    #[test]
+    fn fits_in_budget_as_single_page() {
+        let pages = paginate(&chars("a\nb\nc"), 3);
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].line_start, 1);
+        assert_eq!(pages[0].line_end, 3);
+    }
+
+    #[test]
+    fn splits_when_exceeding_budget() {
+        let pages = paginate(&chars("a\nb\nc\nd"), 2);
+        assert_eq!(pages.len(), 2);
+        assert_eq!(pages[0].content, chars("a\nb\n"));
+        assert_eq!(pages[0].line_start, 1);
+        assert_eq!(pages[0].line_end, 2);
+        assert_eq!(pages[1].content, chars("c\nd"));
+        assert_eq!(pages[1].line_start, 3);
+        assert_eq!(pages[1].line_end, 4);
+    }
+
+    #[test]
+    fn rows_per_page_zero_is_clamped_to_one() {
+        let pages = paginate(&chars("a\nb\n"), 0);
+        assert_eq!(pages.len(), 2);
+        assert_eq!(pages[0].content, chars("a\n"));
+        assert_eq!(pages[1].content, chars("b\n"));
+    }
+
+    #[test]
+    fn pages_concatenate_to_original_input() {
+        let input = chars("line1\nline2\nline3\nline4\nline5");
+        let pages = paginate(&input, 2);
+        let rejoined: Vec<char> = pages
+            .iter()
+            .flat_map(|p| p.content.iter().copied())
+            .collect();
+        assert_eq!(rejoined, input);
+    }
+
+    #[test]
+    fn tracks_line_ranges_across_multiple_pages() {
+        let pages = paginate(&chars("1\n2\n3\n4\n5\n"), 2);
+        assert_eq!(pages.len(), 3);
+        assert_eq!((pages[0].line_start, pages[0].line_end), (1, 2));
+        assert_eq!((pages[1].line_start, pages[1].line_end), (3, 4));
+        assert_eq!((pages[2].line_start, pages[2].line_end), (5, 5));
+    }
+}
