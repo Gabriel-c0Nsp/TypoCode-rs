@@ -5,3 +5,4 @@
 //! added as the FR (functional requirement) that needs them lands.
 
 pub mod errors;
+pub mod logging;
