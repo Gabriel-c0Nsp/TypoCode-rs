@@ -14,7 +14,7 @@ use ratatui::{
 };
 
 use crate::file::SourceFile;
-use crate::text::{Pages, paginate};
+use crate::text::{Pages, gutter_labels, paginate, wrap_content};
 
 /// Combined keyboard / tick poll interval. A tick fires whenever
 /// `event::poll` returns `false` after this many milliseconds, which
@@ -32,6 +32,7 @@ pub struct App {
     source: SourceFile,
     pages: Option<Pages>,
     last_viewport_rows: u16,
+    last_viewport_cols: u16,
     should_quit: bool,
 }
 
@@ -53,6 +54,7 @@ impl App {
             source,
             pages: None,
             last_viewport_rows: 0,
+            last_viewport_cols: 0,
             should_quit: false,
         }
     }
@@ -68,19 +70,28 @@ impl App {
         Ok(())
     }
 
-    /// Builds or rebuilds [`Pages`] whenever the viewport height
-    /// changes. Called before each render; the C version froze
+    /// Builds or rebuilds [`Pages`] whenever the viewport dimensions
+    /// change. Called before each render; the C version froze
     /// pagination at startup and broke on resize — here we recompute so
-    /// layout always tracks the live row budget. The current page index
-    /// resets to 0 because page boundaries shift with the new budget,
-    /// and preserving the cursor across a reflow belongs to later FRs.
-    fn ensure_paginated(&mut self, viewport_rows: u16) {
-        if self.pages.is_some() && self.last_viewport_rows == viewport_rows {
+    /// layout always tracks the live row/column budget. The current
+    /// page index resets to 0 because page boundaries shift under the
+    /// new budget, and preserving the cursor across a reflow belongs
+    /// to later FRs.
+    fn ensure_paginated(&mut self, viewport_rows: u16, viewport_cols: u16) {
+        if self.pages.is_some()
+            && self.last_viewport_rows == viewport_rows
+            && self.last_viewport_cols == viewport_cols
+        {
             return;
         }
-        let pages = paginate(&self.source.content, viewport_rows as usize);
+        let pages = paginate(
+            &self.source.content,
+            viewport_rows as usize,
+            viewport_cols as usize,
+        );
         self.pages = Pages::new(pages);
         self.last_viewport_rows = viewport_rows;
+        self.last_viewport_cols = viewport_cols;
     }
 
     fn handle_event(&mut self, event: Event) {
@@ -105,20 +116,54 @@ impl App {
     }
 
     fn view(&mut self, frame: &mut Frame) {
-        let [body_area, footer_area] =
+        let [main_area, footer_area] =
             Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
 
-        self.ensure_paginated(body_area.height);
+        let gutter_width = gutter_column_width(self.source.line_count);
+        let [gutter_area, body_area] =
+            Layout::horizontal([Constraint::Length(gutter_width), Constraint::Min(0)])
+                .areas(main_area);
 
-        let (body_text, footer_text) = match &self.pages {
-            Some(pages) => (
-                pages.current().content.iter().collect::<String>(),
-                format!("page {} / {}", pages.current_index(), pages.total()),
-            ),
-            None => (String::new(), String::new()),
+        self.ensure_paginated(body_area.height, body_area.width);
+
+        let (gutter_text, body_text, footer_text) = match &self.pages {
+            Some(pages) => {
+                let page = pages.current();
+                let rows = wrap_content(&page.content, body_area.width as usize);
+                let labels =
+                    gutter_labels(&page.content, body_area.width as usize, page.line_start);
+                let digit_width = (gutter_width.saturating_sub(1)) as usize;
+                let gutter = labels
+                    .iter()
+                    .map(|label| match label {
+                        Some(n) => format!("{n:>digit_width$} "),
+                        None => " ".repeat(digit_width + 1),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let body = rows
+                    .iter()
+                    .map(|row| row.iter().collect::<String>())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                (
+                    gutter,
+                    body,
+                    format!("page {} / {}", pages.current_index(), pages.total()),
+                )
+            }
+            None => (String::new(), String::new(), String::new()),
         };
 
+        frame.render_widget(Paragraph::new(gutter_text), gutter_area);
         frame.render_widget(Paragraph::new(body_text), body_area);
         frame.render_widget(Paragraph::new(footer_text), footer_area);
     }
+}
+
+/// Reserves enough columns for the widest source-line number plus a
+/// single trailing space separating the gutter from the body.
+fn gutter_column_width(total_lines: usize) -> u16 {
+    let digits = total_lines.max(1).to_string().len() as u16;
+    digits + 1
 }

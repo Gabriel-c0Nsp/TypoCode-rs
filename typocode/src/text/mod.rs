@@ -6,8 +6,10 @@
 //! these types without touching the filesystem or the terminal.
 
 pub mod pagination;
+pub mod wrap;
 
 pub use pagination::paginate;
+pub use wrap::{gutter_labels, visual_rows_for_line, wrap as wrap_content};
 
 /// A single page of expanded source text.
 ///

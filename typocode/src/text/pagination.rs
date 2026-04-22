@@ -1,58 +1,79 @@
-//! Splits expanded source text into [`Page`]s sized to a row budget.
+//! Splits expanded source text into [`Page`]s sized to a visual row
+//! budget.
 //!
-//! Mirrors the C version's `buffer/buffer.c:create_buffer` semantics:
-//! each page holds at most `rows_per_page` source lines (newline-terminated
-//! runs). A `rows_per_page` of 0 is clamped to 1 so every page makes
-//! forward progress; an empty input yields an empty page list.
+//! A source line that's wider than the viewport wraps to multiple
+//! visual rows (see [`super::wrap`]); pagination packs source lines
+//! into a page until adding the next one would exceed
+//! `rows_per_page` visual rows. A source line that's taller than the
+//! whole budget on its own lands on a page by itself and is allowed
+//! to overflow — we never split a source line across pages, so the
+//! line-number gutter stays coherent.
+//!
+//! `rows_per_page` and `cols` are each clamped to 1 so pagination
+//! always makes forward progress; empty input yields an empty page
+//! list.
 
 use super::Page;
+use super::wrap::visual_rows_for_line;
 
-/// Splits `content` into pages, each spanning at most `rows_per_page`
-/// source lines.
+/// Splits `content` into pages.
 ///
-/// Source lines are counted by `\n`. Trailing content without a final
-/// newline becomes its own (short) final page. The returned pages cover
-/// `content` end-to-end without gaps or overlap; concatenating their
-/// `content` fields reproduces the input.
-pub fn paginate(content: &[char], rows_per_page: usize) -> Vec<Page> {
+/// `rows_per_page` is the page's visual-row budget (body area height);
+/// `cols` is the body area width used to compute per-source-line wrap.
+/// The returned pages cover `content` end-to-end without gaps or
+/// overlap: concatenating their `content` fields reproduces the input.
+pub fn paginate(content: &[char], rows_per_page: usize, cols: usize) -> Vec<Page> {
     let rows = rows_per_page.max(1);
+    let cols = cols.max(1);
     let mut pages = Vec::new();
     if content.is_empty() {
         return pages;
     }
 
     let mut page_chars: Vec<char> = Vec::new();
-    let mut page_newlines = 0usize;
+    let mut page_rows = 0usize;
     let mut line_start = 1usize;
     // Line number the next character belongs to.
     let mut line_cursor = 1usize;
+    let mut current_line: Vec<char> = Vec::new();
 
     for &c in content {
-        page_chars.push(c);
         if c == '\n' {
-            page_newlines += 1;
-            let closed_line = line_cursor;
-            line_cursor += 1;
-            if page_newlines >= rows {
+            let line_rows = visual_rows_for_line(current_line.len(), cols);
+            if !page_chars.is_empty() && page_rows + line_rows > rows {
                 pages.push(Page {
                     content: std::mem::take(&mut page_chars),
                     line_start,
-                    line_end: closed_line,
+                    line_end: line_cursor - 1,
                 });
                 line_start = line_cursor;
-                page_newlines = 0;
+                page_rows = 0;
             }
+            page_chars.append(&mut current_line);
+            page_chars.push('\n');
+            page_rows += line_rows;
+            line_cursor += 1;
+        } else {
+            current_line.push(c);
         }
     }
 
+    // Trailing partial line with no terminating newline.
+    if !current_line.is_empty() {
+        let line_rows = visual_rows_for_line(current_line.len(), cols);
+        if !page_chars.is_empty() && page_rows + line_rows > rows {
+            pages.push(Page {
+                content: std::mem::take(&mut page_chars),
+                line_start,
+                line_end: line_cursor - 1,
+            });
+            line_start = line_cursor;
+        }
+        page_chars.append(&mut current_line);
+    }
+
     if !page_chars.is_empty() {
-        // Trailing run without a terminal newline, or a page that didn't
-        // reach the row budget. `line_cursor` points at the line the next
-        // (nonexistent) character would occupy; subtract one when the
-        // last char was a newline to avoid counting an empty trailing
-        // line.
-        let ends_with_newline = page_chars.last() == Some(&'\n');
-        let line_end = if ends_with_newline {
+        let line_end = if page_chars.last() == Some(&'\n') {
             line_cursor - 1
         } else {
             line_cursor
@@ -77,12 +98,12 @@ mod tests {
 
     #[test]
     fn empty_input_yields_no_pages() {
-        assert!(paginate(&[], 5).is_empty());
+        assert!(paginate(&[], 5, 80).is_empty());
     }
 
     #[test]
     fn single_line_without_newline_is_one_page() {
-        let pages = paginate(&chars("hello"), 3);
+        let pages = paginate(&chars("hello"), 3, 80);
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0].content, chars("hello"));
         assert_eq!(pages[0].line_start, 1);
@@ -91,7 +112,7 @@ mod tests {
 
     #[test]
     fn single_line_with_trailing_newline_is_one_page() {
-        let pages = paginate(&chars("hello\n"), 3);
+        let pages = paginate(&chars("hello\n"), 3, 80);
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0].content, chars("hello\n"));
         assert_eq!(pages[0].line_end, 1);
@@ -99,7 +120,7 @@ mod tests {
 
     #[test]
     fn fits_in_budget_as_single_page() {
-        let pages = paginate(&chars("a\nb\nc"), 3);
+        let pages = paginate(&chars("a\nb\nc"), 3, 80);
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0].line_start, 1);
         assert_eq!(pages[0].line_end, 3);
@@ -107,7 +128,7 @@ mod tests {
 
     #[test]
     fn splits_when_exceeding_budget() {
-        let pages = paginate(&chars("a\nb\nc\nd"), 2);
+        let pages = paginate(&chars("a\nb\nc\nd"), 2, 80);
         assert_eq!(pages.len(), 2);
         assert_eq!(pages[0].content, chars("a\nb\n"));
         assert_eq!(pages[0].line_start, 1);
@@ -119,7 +140,7 @@ mod tests {
 
     #[test]
     fn rows_per_page_zero_is_clamped_to_one() {
-        let pages = paginate(&chars("a\nb\n"), 0);
+        let pages = paginate(&chars("a\nb\n"), 0, 80);
         assert_eq!(pages.len(), 2);
         assert_eq!(pages[0].content, chars("a\n"));
         assert_eq!(pages[1].content, chars("b\n"));
@@ -128,7 +149,7 @@ mod tests {
     #[test]
     fn pages_concatenate_to_original_input() {
         let input = chars("line1\nline2\nline3\nline4\nline5");
-        let pages = paginate(&input, 2);
+        let pages = paginate(&input, 2, 80);
         let rejoined: Vec<char> = pages
             .iter()
             .flat_map(|p| p.content.iter().copied())
@@ -138,10 +159,48 @@ mod tests {
 
     #[test]
     fn tracks_line_ranges_across_multiple_pages() {
-        let pages = paginate(&chars("1\n2\n3\n4\n5\n"), 2);
+        let pages = paginate(&chars("1\n2\n3\n4\n5\n"), 2, 80);
         assert_eq!(pages.len(), 3);
         assert_eq!((pages[0].line_start, pages[0].line_end), (1, 2));
         assert_eq!((pages[1].line_start, pages[1].line_end), (3, 4));
         assert_eq!((pages[2].line_start, pages[2].line_end), (5, 5));
+    }
+
+    #[test]
+    fn wrapped_line_consumes_multiple_visual_rows() {
+        // One source line of 6 chars at cols=3 wraps to 2 visual rows,
+        // filling a rows=2 page on its own. The second line starts on
+        // a new page.
+        let pages = paginate(&chars("abcdef\nx"), 2, 3);
+        assert_eq!(pages.len(), 2);
+        assert_eq!(pages[0].content, chars("abcdef\n"));
+        assert_eq!((pages[0].line_start, pages[0].line_end), (1, 1));
+        assert_eq!(pages[1].content, chars("x"));
+        assert_eq!((pages[1].line_start, pages[1].line_end), (2, 2));
+    }
+
+    #[test]
+    fn line_longer_than_budget_gets_its_own_overflowing_page() {
+        // A single source line of 12 chars at cols=3 would take 4 visual
+        // rows. With rows=2 it overflows, but we don't split it — the
+        // page contains exactly that line so the gutter counter stays
+        // aligned with source-line numbers.
+        let pages = paginate(&chars("abcdefghijkl\nfoo"), 2, 3);
+        assert_eq!(pages.len(), 2);
+        assert_eq!(pages[0].content, chars("abcdefghijkl\n"));
+        assert_eq!((pages[0].line_start, pages[0].line_end), (1, 1));
+        assert_eq!(pages[1].content, chars("foo"));
+    }
+
+    #[test]
+    fn blank_line_still_occupies_one_row() {
+        // "a\n\nb\nc" — four source lines (a, empty, b, c) each taking 1
+        // visual row, rows=2 budget splits 2+2.
+        let pages = paginate(&chars("a\n\nb\nc"), 2, 80);
+        assert_eq!(pages.len(), 2);
+        assert_eq!(pages[0].content, chars("a\n\n"));
+        assert_eq!((pages[0].line_start, pages[0].line_end), (1, 2));
+        assert_eq!(pages[1].content, chars("b\nc"));
+        assert_eq!((pages[1].line_start, pages[1].line_end), (3, 4));
     }
 }
