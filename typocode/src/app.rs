@@ -27,6 +27,7 @@ const TICK_RATE: Duration = Duration::from_millis(250);
 pub struct App {
     source: SourceFile,
     pages: Option<Pages>,
+    last_viewport_rows: u16,
     should_quit: bool,
 }
 
@@ -47,6 +48,7 @@ impl App {
         Self {
             source,
             pages: None,
+            last_viewport_rows: 0,
             should_quit: false,
         }
     }
@@ -65,15 +67,19 @@ impl App {
         Ok(())
     }
 
-    /// Builds or keeps the [`Pages`] for the current viewport height.
-    /// Called before each render; the C version froze pagination at
-    /// startup and broke when the terminal was resized — here we always
-    /// match the live row budget.
+    /// Builds or rebuilds [`Pages`] whenever the viewport height
+    /// changes. Called before each render; the C version froze
+    /// pagination at startup and broke on resize — here we recompute so
+    /// layout always tracks the live row budget. The current page index
+    /// resets to 0 because page boundaries shift with the new budget,
+    /// and preserving the cursor across a reflow belongs to later FRs.
     fn ensure_paginated(&mut self, viewport_rows: u16) {
-        if self.pages.is_none() {
-            let pages = paginate(&self.source.content, viewport_rows as usize);
-            self.pages = Pages::new(pages);
+        if self.pages.is_some() && self.last_viewport_rows == viewport_rows {
+            return;
         }
+        let pages = paginate(&self.source.content, viewport_rows as usize);
+        self.pages = Pages::new(pages);
+        self.last_viewport_rows = viewport_rows;
     }
 
     fn handle_event(&mut self, event: Event) {
