@@ -32,6 +32,7 @@ pub struct App {
     source: SourceFile,
     pages: Option<Pages>,
     last_viewport_rows: u16,
+    last_viewport_cols: u16,
     should_quit: bool,
 }
 
@@ -53,6 +54,7 @@ impl App {
             source,
             pages: None,
             last_viewport_rows: 0,
+            last_viewport_cols: 0,
             should_quit: false,
         }
     }
@@ -68,19 +70,28 @@ impl App {
         Ok(())
     }
 
-    /// Builds or rebuilds [`Pages`] whenever the viewport height
-    /// changes. Called before each render; the C version froze
+    /// Builds or rebuilds [`Pages`] whenever the viewport dimensions
+    /// change. Called before each render; the C version froze
     /// pagination at startup and broke on resize — here we recompute so
-    /// layout always tracks the live row budget. The current page index
-    /// resets to 0 because page boundaries shift with the new budget,
-    /// and preserving the cursor across a reflow belongs to later FRs.
-    fn ensure_paginated(&mut self, viewport_rows: u16) {
-        if self.pages.is_some() && self.last_viewport_rows == viewport_rows {
+    /// layout always tracks the live row/column budget. The current
+    /// page index resets to 0 because page boundaries shift under the
+    /// new budget, and preserving the cursor across a reflow belongs
+    /// to later FRs.
+    fn ensure_paginated(&mut self, viewport_rows: u16, viewport_cols: u16) {
+        if self.pages.is_some()
+            && self.last_viewport_rows == viewport_rows
+            && self.last_viewport_cols == viewport_cols
+        {
             return;
         }
-        let pages = paginate(&self.source.content, viewport_rows as usize);
+        let pages = paginate(
+            &self.source.content,
+            viewport_rows as usize,
+            viewport_cols as usize,
+        );
         self.pages = Pages::new(pages);
         self.last_viewport_rows = viewport_rows;
+        self.last_viewport_cols = viewport_cols;
     }
 
     fn handle_event(&mut self, event: Event) {
@@ -108,7 +119,7 @@ impl App {
         let [body_area, footer_area] =
             Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
 
-        self.ensure_paginated(body_area.height);
+        self.ensure_paginated(body_area.height, body_area.width);
 
         let (body_text, footer_text) = match &self.pages {
             Some(pages) => (
