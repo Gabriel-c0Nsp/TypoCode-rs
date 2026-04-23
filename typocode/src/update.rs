@@ -73,7 +73,11 @@ pub fn update(pages: &mut Pages, cursor: &mut Cursor, msg: Msg) -> UpdateOutcome
             handle_backspace(pages, cursor);
             UpdateOutcome::default()
         }
-        Msg::Space | Msg::Enter | Msg::Tab => UpdateOutcome::default(),
+        Msg::Enter => {
+            handle_enter(pages, cursor);
+            UpdateOutcome::default()
+        }
+        Msg::Space | Msg::Tab => UpdateOutcome::default(),
     }
 }
 
@@ -158,6 +162,71 @@ fn handle_backspace(pages: &mut Pages, cursor: &mut Cursor) {
 
     cursor.cu_ptr -= 1;
     page.cells[cursor.cu_ptr].state = CellState::Pending;
+}
+
+/// Handles an Enter keystroke.
+///
+/// Enter on the last cell of a non-final page advances to the next
+/// page and auto-skips its leading whitespace (the C version's
+/// end-of-buffer shortcut). On a newline cell with no pending extras
+/// it's a correct keystroke: mark the cell Correct, advance, and skip
+/// leading whitespace. On any other expected cell it's a wrong
+/// keystroke that pushes onto extras — a placeholder `\n` so the
+/// renderer can show a "wrong enter" glyph. Enter on a `\n` cell with
+/// pending extras is a no-op so the player has to clear the extras
+/// first, matching the C fall-through.
+fn handle_enter(pages: &mut Pages, cursor: &mut Cursor) {
+    let page_len = pages.current().cells.len();
+
+    // Advance page when the cursor is at the last cell of a page that
+    // isn't the final page. The C check `vect_buff[cu_ptr+1] == '\0'`
+    // fires at cu_ptr == size - 1; we additionally catch cu_ptr == size
+    // which can happen after the trailing char on the page was typed.
+    if cursor.cu_ptr + 1 >= page_len && !pages.is_last() {
+        let extras_empty = cursor.extras.is_empty();
+        if cursor.cu_ptr < page_len {
+            let state = if extras_empty {
+                CellState::Correct
+            } else {
+                CellState::Wrong
+            };
+            pages.current_mut().cells[cursor.cu_ptr].state = state;
+        }
+        pages.next();
+        cursor.cu_ptr = 0;
+        cursor.extras.clear();
+        skip_leading_whitespace(pages, cursor);
+        return;
+    }
+
+    if cursor.cu_ptr >= page_len {
+        return;
+    }
+
+    let expected = pages.current().cells[cursor.cu_ptr].ch;
+    if expected == '\n' {
+        if !cursor.extras.is_empty() {
+            // Wait until the player backspaces the pending extras.
+            return;
+        }
+        pages.current_mut().cells[cursor.cu_ptr].state = CellState::Correct;
+        cursor.cu_ptr += 1;
+        skip_leading_whitespace(pages, cursor);
+    } else {
+        cursor.extras.push('\n');
+    }
+}
+
+/// Advances `cu_ptr` past any consecutive space cells starting at the
+/// current position, marking each one [`CellState::Correct`]. Used
+/// after a correct Enter to skip the indentation of the next source
+/// line so the player doesn't have to type it.
+fn skip_leading_whitespace(pages: &mut Pages, cursor: &mut Cursor) {
+    let page = pages.current_mut();
+    while cursor.cu_ptr < page.cells.len() && page.cells[cursor.cu_ptr].ch == ' ' {
+        page.cells[cursor.cu_ptr].state = CellState::Correct;
+        cursor.cu_ptr += 1;
+    }
 }
 
 #[cfg(test)]
@@ -318,5 +387,73 @@ mod tests {
         update(&mut pages, &mut cursor, Msg::Backspace);
         assert_eq!(pages.current_index(), 1);
         assert_eq!(cursor.cu_ptr, pages.current().cells.len());
+    }
+
+    #[test]
+    fn enter_on_newline_advances_and_skips_leading_spaces() {
+        let mut pages = make_pages("a\n  b");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 1); // type 'a'
+        assert_eq!(cursor.cu_ptr, 1); // at \n
+
+        update(&mut pages, &mut cursor, Msg::Enter);
+        // Cursor landed on 'b' (index 4): \n + two spaces auto-skipped.
+        assert_eq!(cursor.cu_ptr, 4);
+        assert_eq!(pages.current().cells[1].state, CellState::Correct);
+        assert_eq!(pages.current().cells[2].state, CellState::Correct);
+        assert_eq!(pages.current().cells[3].state, CellState::Correct);
+        assert_eq!(pages.current().cells[4].state, CellState::Pending);
+    }
+
+    #[test]
+    fn enter_mid_line_pushes_extra_without_advancing() {
+        let mut pages = make_pages("abc");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 1);
+        update(&mut pages, &mut cursor, Msg::Enter);
+        assert_eq!(cursor.cu_ptr, 1);
+        assert_eq!(cursor.extras, vec!['\n']);
+    }
+
+    #[test]
+    fn enter_at_newline_with_pending_extras_is_noop() {
+        let mut pages = make_pages("a\nb");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 1);
+        update(&mut pages, &mut cursor, Msg::Char('x'));
+        assert_eq!(cursor.extras, vec!['x']);
+
+        update(&mut pages, &mut cursor, Msg::Enter);
+        assert_eq!(cursor.cu_ptr, 1);
+        assert_eq!(cursor.extras, vec!['x']);
+        assert_eq!(pages.current().cells[1].state, CellState::Pending);
+    }
+
+    #[test]
+    fn enter_at_last_cell_advances_to_next_page() {
+        let mut pages = make_two_pages();
+        let mut cursor = Cursor::default();
+        pages.prev(); // start on page 1
+        mark_correct(&mut pages, &mut cursor, 1); // "ab", now at 'b' (last cell)
+        assert_eq!(pages.current_index(), 1);
+        assert_eq!(cursor.cu_ptr, 1);
+
+        update(&mut pages, &mut cursor, Msg::Enter);
+        assert_eq!(pages.current_index(), 2);
+        assert_eq!(cursor.cu_ptr, 0);
+        assert!(cursor.extras.is_empty());
+    }
+
+    #[test]
+    fn enter_on_final_page_last_cell_is_noop() {
+        let mut pages = make_pages("ab");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 1); // at 'b' (last cell of only page)
+
+        update(&mut pages, &mut cursor, Msg::Enter);
+        assert_eq!(pages.current_index(), 1);
+        assert_eq!(cursor.cu_ptr, 1);
+        // At a non-newline cell it's a wrong Enter, so it pushes an extra.
+        assert_eq!(cursor.extras, vec!['\n']);
     }
 }
