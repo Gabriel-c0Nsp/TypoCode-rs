@@ -140,6 +140,13 @@ impl Pages {
         }
     }
 
+    /// Read-only iterator over every page in order. Handy for reflow
+    /// tests and external widgets that want to inspect the full
+    /// collection without taking ownership.
+    pub fn iter(&self) -> impl Iterator<Item = &Page> {
+        self.pages.iter()
+    }
+
     /// Total cell count summed across every page. Used by reflow
     /// preservation to translate between local `(page, cu_ptr)` and a
     /// single global character offset into the source text.
