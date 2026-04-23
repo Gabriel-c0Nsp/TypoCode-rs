@@ -107,6 +107,17 @@ impl Pages {
         self.current + 1 == self.pages.len()
     }
 
+    /// Resets every cell on every page to [`CellState::Pending`] and
+    /// jumps back to the first page — the data-side of a restart.
+    pub fn restart(&mut self) {
+        for page in &mut self.pages {
+            for cell in &mut page.cells {
+                cell.state = CellState::Pending;
+            }
+        }
+        self.current = 0;
+    }
+
     /// 1-based index of the current page, for display in the footer.
     pub fn current_index(&self) -> usize {
         self.current + 1

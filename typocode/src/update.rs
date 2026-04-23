@@ -85,7 +85,10 @@ pub fn update(pages: &mut Pages, cursor: &mut Cursor, msg: Msg) -> UpdateOutcome
             handle_enter(pages, cursor);
             UpdateOutcome::default()
         }
-        Msg::Tab => UpdateOutcome::default(),
+        Msg::Tab => {
+            handle_restart(pages, cursor);
+            UpdateOutcome::default()
+        }
     }
 }
 
@@ -235,6 +238,14 @@ fn skip_leading_whitespace(pages: &mut Pages, cursor: &mut Cursor) {
         page.cells[cursor.cu_ptr].state = CellState::Correct;
         cursor.cu_ptr += 1;
     }
+}
+
+/// Restarts the current run: every page's cells revert to Pending,
+/// the current page goes back to the first, and the cursor resets.
+/// Timer restart is wired up separately in FR-06.
+fn handle_restart(pages: &mut Pages, cursor: &mut Cursor) {
+    pages.restart();
+    cursor.reset();
 }
 
 #[cfg(test)]
@@ -494,5 +505,21 @@ mod tests {
         update(&mut pages, &mut cursor, Msg::Space);
         assert_eq!(cursor.cu_ptr, 0);
         assert_eq!(cursor.extras, vec![' ', ' ']);
+    }
+
+    #[test]
+    fn tab_restarts_cells_cursor_and_page() {
+        let mut pages = make_two_pages();
+        let mut cursor = Cursor::default();
+        // Dirty state: advance to page 2, type a wrong extra.
+        mark_correct(&mut pages, &mut cursor, 1);
+        update(&mut pages, &mut cursor, Msg::Char('z'));
+        assert_eq!(pages.current_index(), 2);
+        assert!(!cursor.extras.is_empty());
+
+        update(&mut pages, &mut cursor, Msg::Tab);
+        assert_eq!(pages.current_index(), 1);
+        assert_eq!(cursor.cu_ptr, 0);
+        assert!(cursor.extras.is_empty());
     }
 }
