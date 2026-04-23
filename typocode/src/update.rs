@@ -69,6 +69,14 @@ pub fn update(pages: &mut Pages, cursor: &mut Cursor, msg: Msg) -> UpdateOutcome
             handle_char(pages, cursor, c);
             UpdateOutcome::default()
         }
+        Msg::Space => {
+            // Space is an ordinary character as far as strict match is
+            // concerned — including the cap-at-one extras rule when the
+            // expected cell is a newline, which handle_char already
+            // enforces.
+            handle_char(pages, cursor, ' ');
+            UpdateOutcome::default()
+        }
         Msg::Backspace => {
             handle_backspace(pages, cursor);
             UpdateOutcome::default()
@@ -77,7 +85,7 @@ pub fn update(pages: &mut Pages, cursor: &mut Cursor, msg: Msg) -> UpdateOutcome
             handle_enter(pages, cursor);
             UpdateOutcome::default()
         }
-        Msg::Space | Msg::Tab => UpdateOutcome::default(),
+        Msg::Tab => UpdateOutcome::default(),
     }
 }
 
@@ -455,5 +463,36 @@ mod tests {
         assert_eq!(cursor.cu_ptr, 1);
         // At a non-newline cell it's a wrong Enter, so it pushes an extra.
         assert_eq!(cursor.extras, vec!['\n']);
+    }
+
+    #[test]
+    fn space_on_expected_space_advances_cursor() {
+        let mut pages = make_pages("a b");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 1);
+        update(&mut pages, &mut cursor, Msg::Space);
+        assert_eq!(cursor.cu_ptr, 2);
+        assert_eq!(pages.current().cells[1].state, CellState::Correct);
+    }
+
+    #[test]
+    fn space_against_expected_newline_caps_extras_at_one() {
+        let mut pages = make_pages("\n");
+        let mut cursor = Cursor::default();
+        update(&mut pages, &mut cursor, Msg::Space);
+        update(&mut pages, &mut cursor, Msg::Space);
+        update(&mut pages, &mut cursor, Msg::Space);
+        assert_eq!(cursor.cu_ptr, 0);
+        assert_eq!(cursor.extras, vec![' ']);
+    }
+
+    #[test]
+    fn space_mid_line_wrong_stacks_extras() {
+        let mut pages = make_pages("abc");
+        let mut cursor = Cursor::default();
+        update(&mut pages, &mut cursor, Msg::Space);
+        update(&mut pages, &mut cursor, Msg::Space);
+        assert_eq!(cursor.cu_ptr, 0);
+        assert_eq!(cursor.extras, vec![' ', ' ']);
     }
 }
