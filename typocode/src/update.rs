@@ -12,6 +12,7 @@
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 
 use crate::app::Cursor;
+use crate::stats::Keystroke;
 use crate::text::{CellState, Pages};
 
 /// One typing-loop event, normalised across the platform key variants.
@@ -36,6 +37,10 @@ pub enum Msg {
 pub struct UpdateOutcome {
     /// Set when the player asked to exit; the run loop should tear down.
     pub should_quit: bool,
+    /// Classification of the keystroke for accuracy stats, if any. `None`
+    /// for non-typing keys (Backspace, Tab, Quit) and for typing keys
+    /// that produced no observable input (past end of the final page).
+    pub keystroke: Option<Keystroke>,
 }
 
 /// Converts a crossterm event into a [`Msg`]. Returns `None` for events
@@ -64,26 +69,29 @@ pub fn from_key_event(event: &Event) -> Option<Msg> {
 /// are added by later commits in this FR.
 pub fn update(pages: &mut Pages, cursor: &mut Cursor, msg: Msg) -> UpdateOutcome {
     let outcome = match msg {
-        Msg::Quit => UpdateOutcome { should_quit: true },
-        Msg::Char(c) => {
-            handle_char(pages, cursor, c);
-            UpdateOutcome::default()
-        }
-        Msg::Space => {
+        Msg::Quit => UpdateOutcome {
+            should_quit: true,
+            keystroke: None,
+        },
+        Msg::Char(c) => UpdateOutcome {
+            should_quit: false,
+            keystroke: handle_char(pages, cursor, c),
+        },
+        Msg::Space => UpdateOutcome {
+            should_quit: false,
             // Space is an ordinary character as far as strict match is
             // concerned — including the extras cap near the end of a
             // line, which handle_char already enforces.
-            handle_char(pages, cursor, ' ');
-            UpdateOutcome::default()
-        }
+            keystroke: handle_char(pages, cursor, ' '),
+        },
         Msg::Backspace => {
             handle_backspace(pages, cursor);
             UpdateOutcome::default()
         }
-        Msg::Enter => {
-            handle_enter(pages, cursor);
-            UpdateOutcome::default()
-        }
+        Msg::Enter => UpdateOutcome {
+            should_quit: false,
+            keystroke: handle_enter(pages, cursor),
+        },
         Msg::Tab => {
             handle_restart(pages, cursor);
             UpdateOutcome::default()
@@ -106,19 +114,22 @@ pub fn update(pages: &mut Pages, cursor: &mut Cursor, msg: Msg) -> UpdateOutcome
 /// char AND no extras are pending — FR-02 requires the player to
 /// backspace their mistakes before any progress resumes. Any other
 /// keystroke piles onto `extras`, bounded by the end-of-line cap.
-fn handle_char(pages: &mut Pages, cursor: &mut Cursor, ch: char) {
+fn handle_char(pages: &mut Pages, cursor: &mut Cursor, ch: char) -> Option<Keystroke> {
     let page = pages.current_mut();
     let Some(expected_cell) = page.cells.get(cursor.cu_ptr) else {
-        // Past end of page — waiting for Enter / Tab / Backspace.
-        return;
+        // Past end of page — waiting for Enter / Tab / Backspace. No
+        // observable input, so the keystroke isn't counted either way.
+        return None;
     };
     let expected = expected_cell.ch;
 
     if cursor.extras.is_empty() && ch == expected && expected != '\n' {
         page.cells[cursor.cu_ptr].state = CellState::Correct;
         cursor.cu_ptr += 1;
+        Some(Keystroke::Correct)
     } else {
         push_extra(&page.cells, cursor, ch);
+        Some(Keystroke::Incorrect)
     }
 }
 
@@ -207,14 +218,14 @@ fn handle_backspace(pages: &mut Pages, cursor: &mut Cursor) {
 /// renderer can show a "wrong enter" glyph. Enter on a `\n` cell with
 /// pending extras is a no-op so the player has to clear the extras
 /// first, matching the C fall-through.
-fn handle_enter(pages: &mut Pages, cursor: &mut Cursor) {
+fn handle_enter(pages: &mut Pages, cursor: &mut Cursor) -> Option<Keystroke> {
     // Progress of any kind — cell advance, whitespace skip, page
     // transition — waits for extras to be cleared first. Enter pressed
     // with pending extras just stacks another placeholder.
     if !cursor.extras.is_empty() {
         let cells = &pages.current().cells;
         push_extra(cells, cursor, '\n');
-        return;
+        return Some(Keystroke::Incorrect);
     }
 
     let page_len = pages.current().cells.len();
@@ -230,11 +241,11 @@ fn handle_enter(pages: &mut Pages, cursor: &mut Cursor) {
         pages.next();
         cursor.cu_ptr = 0;
         skip_leading_whitespace(pages, cursor);
-        return;
+        return Some(Keystroke::Correct);
     }
 
     if cursor.cu_ptr >= page_len {
-        return;
+        return None;
     }
 
     let expected = pages.current().cells[cursor.cu_ptr].ch;
@@ -242,9 +253,11 @@ fn handle_enter(pages: &mut Pages, cursor: &mut Cursor) {
         pages.current_mut().cells[cursor.cu_ptr].state = CellState::Correct;
         cursor.cu_ptr += 1;
         skip_leading_whitespace(pages, cursor);
+        Some(Keystroke::Correct)
     } else {
         let cells = &pages.current().cells;
         push_extra(cells, cursor, '\n');
+        Some(Keystroke::Incorrect)
     }
 }
 
@@ -564,6 +577,76 @@ mod tests {
         update(&mut pages, &mut cursor, Msg::Space);
         assert_eq!(cursor.cu_ptr, 0);
         assert_eq!(cursor.extras, vec![' ', ' ']);
+    }
+
+    #[test]
+    fn correct_char_classified_as_correct_keystroke() {
+        let mut pages = make_pages("abc");
+        let mut cursor = Cursor::default();
+        let outcome = update(&mut pages, &mut cursor, Msg::Char('a'));
+        assert_eq!(outcome.keystroke, Some(Keystroke::Correct));
+    }
+
+    #[test]
+    fn wrong_char_classified_as_incorrect_keystroke() {
+        let mut pages = make_pages("abc");
+        let mut cursor = Cursor::default();
+        let outcome = update(&mut pages, &mut cursor, Msg::Char('x'));
+        assert_eq!(outcome.keystroke, Some(Keystroke::Incorrect));
+    }
+
+    #[test]
+    fn char_past_end_of_final_page_is_uncounted() {
+        let mut pages = make_pages("a");
+        let mut cursor = Cursor::default();
+        update(&mut pages, &mut cursor, Msg::Char('a'));
+        let outcome = update(&mut pages, &mut cursor, Msg::Char('z'));
+        assert_eq!(outcome.keystroke, None);
+    }
+
+    #[test]
+    fn wrong_char_at_line_tail_cap_still_counts_as_incorrect() {
+        // Cap-saturated keystrokes still register as incorrect so the
+        // player can't game accuracy by spamming past the cap.
+        let mut pages = make_pages("\n");
+        let mut cursor = Cursor::default();
+        update(&mut pages, &mut cursor, Msg::Char('x'));
+        let outcome = update(&mut pages, &mut cursor, Msg::Char('y'));
+        assert_eq!(outcome.keystroke, Some(Keystroke::Incorrect));
+    }
+
+    #[test]
+    fn correct_enter_classified_as_correct_keystroke() {
+        let mut pages = make_pages("a\nb");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 1);
+        let outcome = update(&mut pages, &mut cursor, Msg::Enter);
+        assert_eq!(outcome.keystroke, Some(Keystroke::Correct));
+    }
+
+    #[test]
+    fn wrong_enter_classified_as_incorrect_keystroke() {
+        let mut pages = make_pages("abc");
+        let mut cursor = Cursor::default();
+        let outcome = update(&mut pages, &mut cursor, Msg::Enter);
+        assert_eq!(outcome.keystroke, Some(Keystroke::Incorrect));
+    }
+
+    #[test]
+    fn backspace_is_never_counted() {
+        let mut pages = make_pages("abc");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 1);
+        let outcome = update(&mut pages, &mut cursor, Msg::Backspace);
+        assert_eq!(outcome.keystroke, None);
+    }
+
+    #[test]
+    fn tab_is_never_counted() {
+        let mut pages = make_pages("abc");
+        let mut cursor = Cursor::default();
+        let outcome = update(&mut pages, &mut cursor, Msg::Tab);
+        assert_eq!(outcome.keystroke, None);
     }
 
     #[test]
