@@ -105,8 +105,7 @@ fn render_plain(app: &mut App, frame: &mut Frame, area: Rect, gutter_width: u16)
     let [main_area, footer_area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
     let [gutter_area, body_area] =
-        Layout::horizontal([Constraint::Length(gutter_width), Constraint::Min(0)])
-            .areas(main_area);
+        Layout::horizontal([Constraint::Length(gutter_width), Constraint::Min(0)]).areas(main_area);
 
     app.ensure_paginated(body_area.height, body_area.width);
 
