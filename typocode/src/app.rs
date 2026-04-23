@@ -9,12 +9,12 @@ use color_eyre::Result;
 use crossterm::event::{self, Event};
 use ratatui::{
     DefaultTerminal, Frame,
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     widgets::Paragraph,
 };
 
 use crate::file::SourceFile;
-use crate::text::{Cell, Pages, gutter_labels, paginate, wrap_content};
+use crate::text::{Cell, Page, Pages, gutter_labels, paginate, wrap_content};
 use crate::update::{self, Msg};
 
 /// Combined keyboard / tick poll interval. A tick fires whenever
@@ -191,6 +191,10 @@ impl App {
         frame.render_widget(Paragraph::new(body_text), body_area);
         frame.render_widget(Paragraph::new(footer_text), footer_area);
 
+        if let Some(pages) = &self.pages {
+            draw_extras_overlay(frame, body_area, pages.current(), &self.cursor);
+        }
+
         if let Some((col, row)) = cursor_screen {
             let x = body_area.x.saturating_add(col);
             let y = body_area.y.saturating_add(row);
@@ -248,6 +252,33 @@ fn cursor_screen_pos(
         col %= cols;
     }
     (col as u16, row as u16)
+}
+
+/// Draws the pending wrong-keystroke buffer on top of the rendered
+/// body. Each extra visually sits at the cell index `cu_ptr + i`
+/// (char-wrapped like the body). Space and newline inputs render as
+/// `_` so the player can see that a special key was pressed in the
+/// wrong place — matching the C version's underscore glyph.
+fn draw_extras_overlay(frame: &mut Frame, body_area: Rect, page: &Page, cursor: &Cursor) {
+    if cursor.extras.is_empty() || body_area.width == 0 {
+        return;
+    }
+    let buf = frame.buffer_mut();
+    for (i, &ex) in cursor.extras.iter().enumerate() {
+        let (col, row) = cursor_screen_pos(&page.cells, cursor.cu_ptr, i, body_area.width);
+        let x = body_area.x.saturating_add(col);
+        let y = body_area.y.saturating_add(row);
+        if x >= body_area.x + body_area.width || y >= body_area.y + body_area.height {
+            continue;
+        }
+        let display = match ex {
+            ' ' | '\n' => '_',
+            c => c,
+        };
+        if let Some(cell) = buf.cell_mut((x, y)) {
+            cell.set_char(display);
+        }
+    }
 }
 
 #[cfg(test)]
