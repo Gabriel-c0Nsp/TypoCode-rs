@@ -16,6 +16,7 @@ use ratatui::{
 };
 
 use crate::file::SourceFile;
+use crate::stats::Stats;
 use crate::text::{Cell, CellState, Page, Pages, gutter_labels, paginate};
 use crate::timer::{Stopwatch, format_mm_ss};
 use crate::update::{self, Msg};
@@ -58,6 +59,7 @@ pub struct App {
     pages: Option<Pages>,
     cursor: Cursor,
     stopwatch: Stopwatch,
+    stats: Stats,
     last_viewport_rows: u16,
     last_viewport_cols: u16,
     should_quit: bool,
@@ -82,6 +84,7 @@ impl App {
             pages: None,
             cursor: Cursor::default(),
             stopwatch: Stopwatch::new(),
+            stats: Stats::new(),
             last_viewport_rows: 0,
             last_viewport_cols: 0,
             should_quit: false,
@@ -144,8 +147,14 @@ impl App {
         // resets on Tab (restart), matching the C version's
         // `started_test` flag. Quit is already handled above.
         match msg {
-            Msg::Tab => self.stopwatch.reset(),
+            Msg::Tab => {
+                self.stopwatch.reset();
+                self.stats.reset();
+            }
             _ => self.stopwatch.start(Instant::now()),
+        }
+        if let Some(kind) = outcome.keystroke {
+            self.stats.record(kind);
         }
         if outcome.should_quit {
             self.should_quit = true;
@@ -186,11 +195,12 @@ impl App {
                     body_area.width,
                 ));
                 let elapsed = format_mm_ss(self.stopwatch.elapsed(Instant::now()));
+                let accuracy = self.stats.accuracy_percent();
                 (
                     Text::from(gutter),
                     body,
                     format!(
-                        "{elapsed}  page {} / {}",
+                        "{elapsed}  {accuracy}%  page {} / {}",
                         pages.current_index(),
                         pages.total()
                     ),
