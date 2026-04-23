@@ -139,6 +139,84 @@ impl Pages {
             self.current -= 1;
         }
     }
+
+    /// Read-only iterator over every page in order. Handy for reflow
+    /// tests and external widgets that want to inspect the full
+    /// collection without taking ownership.
+    pub fn iter(&self) -> impl Iterator<Item = &Page> {
+        self.pages.iter()
+    }
+
+    /// Total cell count summed across every page. Used by reflow
+    /// preservation to translate between local `(page, cu_ptr)` and a
+    /// single global character offset into the source text.
+    pub fn total_cells(&self) -> usize {
+        self.pages.iter().map(|p| p.cells.len()).sum()
+    }
+
+    /// Converts a local cursor position `(current, cu_ptr)` into a
+    /// global character offset into the source text. Repagination
+    /// destroys page boundaries but source content is unchanged, so
+    /// this offset is the stable handle across a resize.
+    pub fn global_progress(&self, cu_ptr: usize) -> usize {
+        let prior: usize = self.pages[..self.current]
+            .iter()
+            .map(|p| p.cells.len())
+            .sum();
+        prior + cu_ptr
+    }
+
+    /// Restores typed progress after a fresh pagination. Marks the
+    /// first `global` cells [`CellState::Correct`], leaves the rest
+    /// [`CellState::Pending`], picks the page that contains the
+    /// boundary, and returns the local `cu_ptr` within it. `global` is
+    /// clamped to `total_cells` so an out-of-range value can't produce
+    /// an invalid state.
+    ///
+    /// When `global` lands exactly at a non-last page's trailing edge
+    /// the cursor is placed at offset 0 of the next page, matching the
+    /// Enter-driven page advance: the player never observes `cu_ptr ==
+    /// page_len` on a non-final page under normal play.
+    pub fn restore_progress(&mut self, global: usize) -> usize {
+        let num_pages = self.pages.len();
+        let total = self.total_cells();
+        for page in &mut self.pages {
+            for cell in &mut page.cells {
+                cell.state = CellState::Pending;
+            }
+        }
+        let clamped = global.min(total);
+        let mut remaining = clamped;
+        let mut target = 0usize;
+        for (i, page) in self.pages.iter_mut().enumerate() {
+            let len = page.cells.len();
+            if remaining >= len {
+                for cell in &mut page.cells {
+                    cell.state = CellState::Correct;
+                }
+                remaining -= len;
+                target = i;
+                if remaining == 0 {
+                    if i + 1 < num_pages {
+                        target = i + 1;
+                    }
+                    break;
+                }
+            } else {
+                for cell in &mut page.cells[..remaining] {
+                    cell.state = CellState::Correct;
+                }
+                target = i;
+                break;
+            }
+        }
+        self.current = target;
+        let prior: usize = self.pages[..self.current]
+            .iter()
+            .map(|p| p.cells.len())
+            .sum();
+        clamped - prior
+    }
 }
 
 #[cfg(test)]
@@ -176,5 +254,89 @@ mod tests {
     fn total_reflects_page_count() {
         let pages = Pages::new(vec![page("a", 1, 1), page("b", 2, 2), page("c", 3, 3)]).unwrap();
         assert_eq!(pages.total(), 3);
+    }
+
+    #[test]
+    fn global_progress_sums_prior_pages_plus_cu_ptr() {
+        let mut pages = Pages::new(vec![page("abc", 1, 1), page("de", 2, 2)]).unwrap();
+        assert_eq!(pages.global_progress(0), 0);
+        assert_eq!(pages.global_progress(2), 2);
+        pages.next();
+        assert_eq!(pages.global_progress(0), 3);
+        assert_eq!(pages.global_progress(1), 4);
+    }
+
+    #[test]
+    fn restore_progress_marks_prefix_correct_and_lands_on_target_page() {
+        let mut pages = Pages::new(vec![page("abc", 1, 1), page("def", 2, 2)]).unwrap();
+        let cu_ptr = pages.restore_progress(4);
+        assert_eq!(pages.current_index(), 2);
+        assert_eq!(cu_ptr, 1);
+        for cell in &pages.pages[0].cells {
+            assert_eq!(cell.state, CellState::Correct);
+        }
+        assert_eq!(pages.pages[1].cells[0].state, CellState::Correct);
+        assert_eq!(pages.pages[1].cells[1].state, CellState::Pending);
+    }
+
+    #[test]
+    fn restore_progress_zero_stays_on_first_page() {
+        let mut pages = Pages::new(vec![page("abc", 1, 1), page("de", 2, 2)]).unwrap();
+        pages.next();
+        let cu_ptr = pages.restore_progress(0);
+        assert_eq!(pages.current_index(), 1);
+        assert_eq!(cu_ptr, 0);
+        for cell in &pages.pages[0].cells {
+            assert_eq!(cell.state, CellState::Pending);
+        }
+    }
+
+    #[test]
+    fn restore_progress_at_page_boundary_advances_to_next_page() {
+        let mut pages = Pages::new(vec![page("abc", 1, 1), page("de", 2, 2)]).unwrap();
+        let cu_ptr = pages.restore_progress(3);
+        assert_eq!(pages.current_index(), 2);
+        assert_eq!(cu_ptr, 0);
+        for cell in &pages.pages[0].cells {
+            assert_eq!(cell.state, CellState::Correct);
+        }
+        for cell in &pages.pages[1].cells {
+            assert_eq!(cell.state, CellState::Pending);
+        }
+    }
+
+    #[test]
+    fn restore_progress_at_end_of_last_page_parks_cursor_past_end() {
+        let mut pages = Pages::new(vec![page("abc", 1, 1), page("de", 2, 2)]).unwrap();
+        let cu_ptr = pages.restore_progress(5);
+        assert_eq!(pages.current_index(), 2);
+        assert_eq!(cu_ptr, 2);
+        for p in &pages.pages {
+            for cell in &p.cells {
+                assert_eq!(cell.state, CellState::Correct);
+            }
+        }
+    }
+
+    #[test]
+    fn restore_progress_clamps_overflow_to_total() {
+        let mut pages = Pages::new(vec![page("ab", 1, 1)]).unwrap();
+        let cu_ptr = pages.restore_progress(99);
+        assert_eq!(cu_ptr, 2);
+        assert_eq!(pages.current_index(), 1);
+    }
+
+    #[test]
+    fn restore_progress_resets_stale_correct_states_outside_prefix() {
+        let mut pages = Pages::new(vec![page("abcd", 1, 1)]).unwrap();
+        for cell in &mut pages.pages[0].cells {
+            cell.state = CellState::Correct;
+        }
+        let cu_ptr = pages.restore_progress(2);
+        assert_eq!(cu_ptr, 2);
+        assert_eq!(pages.pages[0].cells[0].state, CellState::Correct);
+        assert_eq!(pages.pages[0].cells[1].state, CellState::Correct);
+        assert_eq!(pages.pages[0].cells[2].state, CellState::Pending);
+        assert_eq!(pages.pages[0].cells[3].state, CellState::Pending);
     }
 }
