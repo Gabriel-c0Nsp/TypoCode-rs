@@ -12,7 +12,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 
 use crate::file::SourceFile;
@@ -399,20 +399,21 @@ fn draw_summary_overlay(frame: &mut Frame, body_area: Rect, elapsed: &str, accur
             Style::default().add_modifier(Modifier::DIM),
         )),
     ];
-    let height = lines.len() as u16;
-    let width = lines
-        .iter()
-        .map(|l| l.width() as u16)
-        .max()
-        .unwrap_or(0)
-        .saturating_add(4);
+    // Add 2 rows/cols for the border and a column of padding on each
+    // side so the longest line has breathing room.
+    let inner_height = lines.len() as u16;
+    let inner_width = lines.iter().map(|l| l.width() as u16).max().unwrap_or(0);
+    let height = inner_height.saturating_add(2);
+    let width = inner_width.saturating_add(4);
+    let block = Block::default().borders(Borders::ALL).title(" summary ");
     if body_area.width < width || body_area.height < height {
-        // Viewport too small for the summary panel — fall back to
-        // rendering it left-aligned over the body area so the finish
-        // state is still visible.
+        // Viewport too small for the bordered panel — render without
+        // centering so the finish state stays visible on tiny layouts.
         frame.render_widget(Clear, body_area);
         frame.render_widget(
-            Paragraph::new(Text::from(lines.to_vec())).alignment(Alignment::Left),
+            Paragraph::new(Text::from(lines.to_vec()))
+                .block(block)
+                .alignment(Alignment::Center),
             body_area,
         );
         return;
@@ -422,7 +423,9 @@ fn draw_summary_overlay(frame: &mut Frame, body_area: Rect, elapsed: &str, accur
     let area = Rect::new(x, y, width, height);
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(Text::from(lines.to_vec())).alignment(Alignment::Center),
+        Paragraph::new(Text::from(lines.to_vec()))
+            .block(block)
+            .alignment(Alignment::Center),
         area,
     );
 }
