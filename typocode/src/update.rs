@@ -63,7 +63,7 @@ pub fn from_key_event(event: &Event) -> Option<Msg> {
 /// in place. Page advance on Enter and the restart-on-Tab behaviour
 /// are added by later commits in this FR.
 pub fn update(pages: &mut Pages, cursor: &mut Cursor, msg: Msg) -> UpdateOutcome {
-    match msg {
+    let outcome = match msg {
         Msg::Quit => UpdateOutcome { should_quit: true },
         Msg::Char(c) => {
             handle_char(pages, cursor, c);
@@ -71,9 +71,8 @@ pub fn update(pages: &mut Pages, cursor: &mut Cursor, msg: Msg) -> UpdateOutcome
         }
         Msg::Space => {
             // Space is an ordinary character as far as strict match is
-            // concerned — including the cap-at-one extras rule when the
-            // expected cell is a newline, which handle_char already
-            // enforces.
+            // concerned — including the extras cap near the end of a
+            // line, which handle_char already enforces.
             handle_char(pages, cursor, ' ');
             UpdateOutcome::default()
         }
@@ -89,7 +88,17 @@ pub fn update(pages: &mut Pages, cursor: &mut Cursor, msg: Msg) -> UpdateOutcome
             handle_restart(pages, cursor);
             UpdateOutcome::default()
         }
-    }
+    };
+    tracing::info!(
+        ?msg,
+        page = pages.current_index(),
+        total_pages = pages.total(),
+        cu_ptr = cursor.cu_ptr,
+        expected = ?pages.current().cells.get(cursor.cu_ptr).map(|c| c.ch),
+        extras = ?cursor.extras,
+        "keystroke"
+    );
+    outcome
 }
 
 /// Handles a printable character keystroke. Strict match: the typed
