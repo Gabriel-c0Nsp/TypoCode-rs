@@ -94,8 +94,11 @@ pub fn update(pages: &mut Pages, cursor: &mut Cursor, msg: Msg) -> UpdateOutcome
 
 /// Handles a printable character keystroke. Strict match: the typed
 /// char must equal the expected cell's char to advance `cu_ptr`, and
-/// any mismatch piles onto `extras` (capped at one entry when the
-/// expected cell is a newline, mirroring the C version's offset cap).
+/// any mismatch piles onto `extras` up to the end-of-line cap — a
+/// wrong keystroke cannot push the visual cursor past one column
+/// beyond the terminating newline of the current source line. This
+/// fixes the C version's overflow, where typing errors near the
+/// trailing whitespace of a line could run off the right edge.
 fn handle_char(pages: &mut Pages, cursor: &mut Cursor, ch: char) {
     let page = pages.current_mut();
     let Some(expected_cell) = page.cells.get(cursor.cu_ptr) else {
@@ -104,16 +107,7 @@ fn handle_char(pages: &mut Pages, cursor: &mut Cursor, ch: char) {
     };
     let expected = expected_cell.ch;
 
-    if expected == '\n' {
-        // Typing any non-newline char against an expected newline is
-        // wrong; only the first such extra is visible (cap at 1).
-        if cursor.extras.is_empty() {
-            cursor.extras.push(ch);
-        }
-        return;
-    }
-
-    if ch == expected {
+    if ch == expected && expected != '\n' {
         let state = if cursor.extras.is_empty() {
             CellState::Correct
         } else {
@@ -122,8 +116,33 @@ fn handle_char(pages: &mut Pages, cursor: &mut Cursor, ch: char) {
         page.cells[cursor.cu_ptr].state = state;
         cursor.cu_ptr += 1;
     } else {
+        push_extra(&page.cells, cursor, ch);
+    }
+}
+
+/// Appends `ch` to `cursor.extras` unless the line-tail cap is already
+/// saturated. The cap is `remaining_to_newline + 1` — one extra past
+/// the terminating newline, mirroring how a wrong keystroke at an
+/// expected `\n` shows a single placeholder glyph past the line end.
+fn push_extra(cells: &[crate::text::Cell], cursor: &mut Cursor, ch: char) {
+    let limit = remaining_to_eol(cells, cursor.cu_ptr) + 1;
+    if cursor.extras.len() < limit {
         cursor.extras.push(ch);
     }
+}
+
+/// Number of non-newline characters between `cu_ptr` and the next
+/// `\n` (exclusive). Returns 0 when the cursor is already sitting on
+/// a `\n` or past the end of the cell list.
+fn remaining_to_eol(cells: &[crate::text::Cell], cu_ptr: usize) -> usize {
+    let mut count = 0;
+    for cell in cells.iter().skip(cu_ptr) {
+        if cell.ch == '\n' {
+            break;
+        }
+        count += 1;
+    }
+    count
 }
 
 /// Handles a backspace. Pops the most recent extra first so wrongs
@@ -224,7 +243,8 @@ fn handle_enter(pages: &mut Pages, cursor: &mut Cursor) {
         cursor.cu_ptr += 1;
         skip_leading_whitespace(pages, cursor);
     } else {
-        cursor.extras.push('\n');
+        let cells = &pages.current().cells;
+        push_extra(cells, cursor, '\n');
     }
 }
 
@@ -303,6 +323,45 @@ mod tests {
         update(&mut pages, &mut cursor, Msg::Char('c'));
         assert_eq!(cursor.cu_ptr, 0);
         assert_eq!(cursor.extras, vec!['a']);
+    }
+
+    #[test]
+    fn extras_cap_at_remaining_to_eol_plus_one() {
+        // Expected "hello\n"; cu_ptr at 'h'. Remaining-to-\n = 5, so up
+        // to 6 wrong keystrokes (the +1 lands one column past \n) are
+        // allowed; the 7th should be rejected.
+        let mut pages = make_pages("hello\n");
+        let mut cursor = Cursor::default();
+        for _ in 0..6 {
+            update(&mut pages, &mut cursor, Msg::Char('x'));
+        }
+        assert_eq!(cursor.extras.len(), 6);
+        update(&mut pages, &mut cursor, Msg::Char('x'));
+        assert_eq!(cursor.extras.len(), 6);
+    }
+
+    #[test]
+    fn extras_cap_shrinks_as_cursor_advances_toward_eol() {
+        let mut pages = make_pages("abc\n");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 2); // cu_ptr at 'c'
+        // Remaining = 1 ('c'); cap = 2.
+        for _ in 0..5 {
+            update(&mut pages, &mut cursor, Msg::Char('x'));
+        }
+        assert_eq!(cursor.extras.len(), 2);
+    }
+
+    #[test]
+    fn wrong_enter_mid_line_respects_cap() {
+        // Two Enters at 'a': first pushes '\n' placeholder, second at
+        // the cap edge still fits (remaining=2 chars → cap=3).
+        let mut pages = make_pages("abc");
+        let mut cursor = Cursor::default();
+        for _ in 0..10 {
+            update(&mut pages, &mut cursor, Msg::Enter);
+        }
+        assert_eq!(cursor.extras.len(), 4);
     }
 
     #[test]
