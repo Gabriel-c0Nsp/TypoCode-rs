@@ -44,7 +44,6 @@ typocode ~/notes/algorithms.py
 | Key         | Action                                   |
 |-------------|------------------------------------------|
 | any char    | Type the next character.                 |
-| `Backspace` | Undo the most recent extra or character. |
 | `Tab`       | Restart the run.                         |
 | `Esc`       | Quit.                                    |
 
@@ -52,8 +51,8 @@ typocode ~/notes/algorithms.py
 
 - Strict-match typing with a visible extras buffer.
 - Green / red / default colouring per character state.
-- Line-number gutter that tracks **source** lines — visual wraps don't
-  bump the counter.
+- Line-number gutter that tracks **source** lines (visual wraps don't
+  bump the counter).
 - Adaptive pagination that reflows on resize.
 - Live `mm:ss` timer and rounded accuracy percentage.
 - Summary panel on completion showing final time + accuracy.
