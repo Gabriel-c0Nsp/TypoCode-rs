@@ -53,9 +53,9 @@ impl Stopwatch {
         }
     }
 
-    /// Returns the time elapsed since [`start`] was first called, or
-    /// the frozen total if [`stop`] has been called, or zero if the
-    /// stopwatch is idle. Uses
+    /// Returns the time elapsed since [`start`](Self::start) was first
+    /// called, or the frozen total if [`stop`](Self::stop) has been
+    /// called, or zero if the stopwatch is idle. Uses
     /// [`Instant::saturating_duration_since`] so callers never observe
     /// a negative/panic if the passed `now` is somehow earlier than the
     /// recorded start — that can only happen under a mocked clock.
