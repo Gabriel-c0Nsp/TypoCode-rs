@@ -14,7 +14,7 @@ use ratatui::{
 };
 
 use crate::file::SourceFile;
-use crate::text::{Pages, gutter_labels, paginate, wrap_content};
+use crate::text::{Cell, Pages, gutter_labels, paginate, wrap_content};
 use crate::update::{self, Msg};
 
 /// Combined keyboard / tick poll interval. A tick fires whenever
@@ -151,6 +151,7 @@ impl App {
 
         self.ensure_paginated(body_area.height, body_area.width);
 
+        let mut cursor_screen: Option<(u16, u16)> = None;
         let (gutter_text, body_text, footer_text) = match &self.pages {
             Some(pages) => {
                 let page = pages.current();
@@ -171,6 +172,12 @@ impl App {
                     .map(|row| row.iter().collect::<String>())
                     .collect::<Vec<_>>()
                     .join("\n");
+                cursor_screen = Some(cursor_screen_pos(
+                    &page.cells,
+                    self.cursor.cu_ptr,
+                    self.cursor.extras.len(),
+                    body_area.width,
+                ));
                 (
                     gutter,
                     body,
@@ -183,6 +190,14 @@ impl App {
         frame.render_widget(Paragraph::new(gutter_text), gutter_area);
         frame.render_widget(Paragraph::new(body_text), body_area);
         frame.render_widget(Paragraph::new(footer_text), footer_area);
+
+        if let Some((col, row)) = cursor_screen {
+            let x = body_area.x.saturating_add(col);
+            let y = body_area.y.saturating_add(row);
+            if x < body_area.x + body_area.width && y < body_area.y + body_area.height {
+                frame.set_cursor_position((x, y));
+            }
+        }
     }
 }
 
@@ -191,4 +206,96 @@ impl App {
 fn gutter_column_width(total_lines: usize) -> u16 {
     let digits = total_lines.max(1).to_string().len() as u16;
     digits + 1
+}
+
+/// Maps `(cu_ptr, extras_len)` to the `(col, row)` the cursor should
+/// occupy within the body area, applying char-wrap at `body_cols`.
+///
+/// Cells before `cu_ptr` already contributed to the visual layout —
+/// each non-newline advances the column by one (wrapping at
+/// `body_cols`), each newline resets to column 0 on the next row.
+/// Extras are rendered to the right of `cu_ptr` so they bump the
+/// column further, wrapping the same way. Returned `(0, 0)` when
+/// `body_cols` is zero.
+fn cursor_screen_pos(
+    cells: &[Cell],
+    cu_ptr: usize,
+    extras_len: usize,
+    body_cols: u16,
+) -> (u16, u16) {
+    if body_cols == 0 {
+        return (0, 0);
+    }
+    let cols = body_cols as usize;
+    let mut row: usize = 0;
+    let mut col: usize = 0;
+    let end = cu_ptr.min(cells.len());
+    for cell in &cells[..end] {
+        if cell.ch == '\n' {
+            row += 1;
+            col = 0;
+        } else {
+            col += 1;
+            if col >= cols {
+                col = 0;
+                row += 1;
+            }
+        }
+    }
+    col += extras_len;
+    if col >= cols {
+        row += col / cols;
+        col %= cols;
+    }
+    (col as u16, row as u16)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::text::Cell;
+
+    fn cells(s: &str) -> Vec<Cell> {
+        s.chars().map(Cell::pending).collect()
+    }
+
+    #[test]
+    fn cursor_at_origin_with_no_extras() {
+        let cs = cells("abc");
+        assert_eq!(cursor_screen_pos(&cs, 0, 0, 10), (0, 0));
+    }
+
+    #[test]
+    fn cursor_advances_within_a_line() {
+        let cs = cells("abcdef");
+        assert_eq!(cursor_screen_pos(&cs, 3, 0, 10), (3, 0));
+    }
+
+    #[test]
+    fn newline_drops_cursor_to_next_row() {
+        let cs = cells("ab\ncd");
+        assert_eq!(cursor_screen_pos(&cs, 3, 0, 10), (0, 1));
+        assert_eq!(cursor_screen_pos(&cs, 5, 0, 10), (2, 1));
+    }
+
+    #[test]
+    fn char_wrap_bumps_row() {
+        let cs = cells("abcdef");
+        assert_eq!(cursor_screen_pos(&cs, 3, 0, 3), (0, 1));
+        assert_eq!(cursor_screen_pos(&cs, 6, 0, 3), (0, 2));
+    }
+
+    #[test]
+    fn extras_bump_column_and_may_wrap() {
+        let cs = cells("abc");
+        assert_eq!(cursor_screen_pos(&cs, 1, 2, 10), (3, 0));
+        // cu_ptr at col 2 with 4 extras at cols=4 → wraps once.
+        assert_eq!(cursor_screen_pos(&cs, 2, 4, 4), (2, 1));
+    }
+
+    #[test]
+    fn zero_body_cols_short_circuits_to_origin() {
+        let cs = cells("abc");
+        assert_eq!(cursor_screen_pos(&cs, 2, 0, 0), (0, 0));
+    }
 }
