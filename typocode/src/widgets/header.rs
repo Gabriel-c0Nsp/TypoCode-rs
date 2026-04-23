@@ -1,4 +1,4 @@
-//! Bat-style "File: <name>" header.
+//! Bat-style `File: <name>` header.
 //!
 //! Mirrors the C version's `draw_file_name` — blue label, bold filename
 //! — rendered into the single-row strip between the top border and the
