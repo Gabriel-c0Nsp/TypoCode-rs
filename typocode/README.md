@@ -1,4 +1,4 @@
-# TypoCode-rs
+# typocode
 
 Terminal typing game that uses source code as practice text. Loads any
 text file, paginates it to fit your terminal, and walks you through it
@@ -11,9 +11,6 @@ Rust rewrite of the original C
 [TypoCode](https://github.com/Gabriel-c0Nsp/TypoCode), built on
 [Ratatui](https://ratatui.rs) and `crossterm` for a faithful, resize-
 aware, cross-platform experience.
-
-The crate lives in [`typocode/`](./typocode) and is published to
-crates.io as `typocode`.
 
 ## Install
 
@@ -71,20 +68,12 @@ every keystroke you make; backspacing doesn't penalise you.
 - Summary panel on completion showing final time + accuracy.
 - Tab to restart from the top with a clean slate.
 
-## Development
+## Non-goals (for now)
 
-```bash
-cd typocode
-cargo run -- path/to/file
-cargo test
-cargo clippy --all-targets -- -D warnings
-cargo fmt
-```
-
-Debugging the typing engine during play: each keystroke is logged to
-`typocode/tracing.log` via `tracing`, which you can tail from another
-shell.
+- Word-aware wrapping. Char wrap keeps layout predictable for code.
+- WPM / words-per-minute stat — accuracy is the headline metric.
+- Themes, multiple languages, network leaderboards.
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+MIT. See [LICENSE](../LICENSE).
