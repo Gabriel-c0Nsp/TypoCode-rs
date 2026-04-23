@@ -64,10 +64,12 @@ pub fn load(path: &Path) -> Result<SourceFile> {
 pub(crate) fn parse(raw: &str) -> Result<SourceFile> {
     let mut content = Vec::with_capacity(raw.len());
     for c in raw.chars() {
-        if c == '\t' {
-            content.extend(std::iter::repeat_n(' ', TAB_WIDTH));
-        } else {
-            content.push(normalize_char(c));
+        match c {
+            '\t' => content.extend(std::iter::repeat_n(' ', TAB_WIDTH)),
+            // CRLF → LF: drop the CR so the cell stream has a single
+            // newline character and Enter matches it.
+            '\r' => {}
+            _ => content.push(normalize_char(c)),
         }
     }
 
@@ -153,5 +155,17 @@ mod tests {
     fn leaves_unrelated_characters_untouched() {
         let parsed = parse("café-→").unwrap();
         assert_eq!(parsed.content, vec!['c', 'a', 'f', 'é', '-', '→']);
+    }
+
+    #[test]
+    fn strips_carriage_returns_to_normalize_crlf() {
+        let parsed = parse("a\r\nb\r\nc").unwrap();
+        assert_eq!(parsed.content, vec!['a', '\n', 'b', '\n', 'c']);
+    }
+
+    #[test]
+    fn strips_standalone_carriage_returns() {
+        let parsed = parse("a\rb").unwrap();
+        assert_eq!(parsed.content, vec!['a', 'b']);
     }
 }
