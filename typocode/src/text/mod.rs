@@ -13,16 +13,15 @@ pub use wrap::{gutter_labels, visual_rows_for_line, wrap as wrap_content};
 
 /// Per-character state of a [`Cell`].
 ///
-/// Every cell starts `Pending` and transitions to `Correct` or `Wrong`
-/// when the typing engine advances past it. `Wrong` is latched — the
-/// player must backspace to clear a mistake, which resets the cell to
-/// `Pending` again. Colour styling lives in the render layer (FR-03);
-/// the state enum only encodes what happened, not how it looks.
+/// A cell is `Pending` until the typing engine commits it as `Correct`
+/// via a strict match. Wrong keystrokes never mutate cells — they pile
+/// into the cursor's extras buffer — so there's no `Wrong` variant
+/// here. Colour styling lives in the render layer (FR-03); this enum
+/// only encodes commit state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CellState {
     Pending,
     Correct,
-    Wrong,
 }
 
 /// One typeable character plus the state of the player's last pass

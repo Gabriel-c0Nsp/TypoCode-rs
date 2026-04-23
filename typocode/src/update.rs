@@ -102,12 +102,10 @@ pub fn update(pages: &mut Pages, cursor: &mut Cursor, msg: Msg) -> UpdateOutcome
 }
 
 /// Handles a printable character keystroke. Strict match: the typed
-/// char must equal the expected cell's char to advance `cu_ptr`, and
-/// any mismatch piles onto `extras` up to the end-of-line cap — a
-/// wrong keystroke cannot push the visual cursor past one column
-/// beyond the terminating newline of the current source line. This
-/// fixes the C version's overflow, where typing errors near the
-/// trailing whitespace of a line could run off the right edge.
+/// char advances `cu_ptr` only when it equals the expected cell's
+/// char AND no extras are pending — FR-02 requires the player to
+/// backspace their mistakes before any progress resumes. Any other
+/// keystroke piles onto `extras`, bounded by the end-of-line cap.
 fn handle_char(pages: &mut Pages, cursor: &mut Cursor, ch: char) {
     let page = pages.current_mut();
     let Some(expected_cell) = page.cells.get(cursor.cu_ptr) else {
@@ -116,13 +114,8 @@ fn handle_char(pages: &mut Pages, cursor: &mut Cursor, ch: char) {
     };
     let expected = expected_cell.ch;
 
-    if ch == expected && expected != '\n' {
-        let state = if cursor.extras.is_empty() {
-            CellState::Correct
-        } else {
-            CellState::Wrong
-        };
-        page.cells[cursor.cu_ptr].state = state;
+    if cursor.extras.is_empty() && ch == expected && expected != '\n' {
+        page.cells[cursor.cu_ptr].state = CellState::Correct;
         cursor.cu_ptr += 1;
     } else {
         push_extra(&page.cells, cursor, ch);
@@ -215,6 +208,15 @@ fn handle_backspace(pages: &mut Pages, cursor: &mut Cursor) {
 /// pending extras is a no-op so the player has to clear the extras
 /// first, matching the C fall-through.
 fn handle_enter(pages: &mut Pages, cursor: &mut Cursor) {
+    // Progress of any kind — cell advance, whitespace skip, page
+    // transition — waits for extras to be cleared first. Enter pressed
+    // with pending extras just stacks another placeholder.
+    if !cursor.extras.is_empty() {
+        let cells = &pages.current().cells;
+        push_extra(cells, cursor, '\n');
+        return;
+    }
+
     let page_len = pages.current().cells.len();
 
     // Advance page when the cursor is at the last cell of a page that
@@ -222,18 +224,11 @@ fn handle_enter(pages: &mut Pages, cursor: &mut Cursor) {
     // fires at cu_ptr == size - 1; we additionally catch cu_ptr == size
     // which can happen after the trailing char on the page was typed.
     if cursor.cu_ptr + 1 >= page_len && !pages.is_last() {
-        let extras_empty = cursor.extras.is_empty();
         if cursor.cu_ptr < page_len {
-            let state = if extras_empty {
-                CellState::Correct
-            } else {
-                CellState::Wrong
-            };
-            pages.current_mut().cells[cursor.cu_ptr].state = state;
+            pages.current_mut().cells[cursor.cu_ptr].state = CellState::Correct;
         }
         pages.next();
         cursor.cu_ptr = 0;
-        cursor.extras.clear();
         skip_leading_whitespace(pages, cursor);
         return;
     }
@@ -244,10 +239,6 @@ fn handle_enter(pages: &mut Pages, cursor: &mut Cursor) {
 
     let expected = pages.current().cells[cursor.cu_ptr].ch;
     if expected == '\n' {
-        if !cursor.extras.is_empty() {
-            // Wait until the player backspaces the pending extras.
-            return;
-        }
         pages.current_mut().cells[cursor.cu_ptr].state = CellState::Correct;
         cursor.cu_ptr += 1;
         skip_leading_whitespace(pages, cursor);
@@ -313,14 +304,14 @@ mod tests {
     }
 
     #[test]
-    fn correct_char_with_pending_extras_marks_cell_wrong() {
+    fn correct_char_with_pending_extras_just_stacks_extras() {
         let mut pages = make_pages("abc");
         let mut cursor = Cursor::default();
         update(&mut pages, &mut cursor, Msg::Char('x'));
         update(&mut pages, &mut cursor, Msg::Char('a'));
-        assert_eq!(cursor.cu_ptr, 1);
-        assert_eq!(cursor.extras, vec!['x']);
-        assert_eq!(pages.current().cells[0].state, CellState::Wrong);
+        assert_eq!(cursor.cu_ptr, 0);
+        assert_eq!(cursor.extras, vec!['x', 'a']);
+        assert_eq!(pages.current().cells[0].state, CellState::Pending);
     }
 
     #[test]
