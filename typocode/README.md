@@ -1,13 +1,10 @@
 # typocode
 
 Terminal typing game that uses source code as practice text. Loads any
-text file, paginates it to fit your terminal, and walks you through it
-character by character — correct keystrokes turn green, wrong ones
-stack as red glyphs you must backspace before typing can resume. Live
-timer and accuracy in the footer; end-of-run summary with your final
+text file, paginates it to fit your terminal. Live timer and accuracy in the footer; end-of-run summary with your final
 time and accuracy.
 
-Rust rewrite of the original C
+Rust rewrite of the original C version
 [TypoCode](https://github.com/Gabriel-c0Nsp/TypoCode), built on
 [Ratatui](https://ratatui.rs) and `crossterm` for a faithful, resize-
 aware, cross-platform experience.
@@ -32,7 +29,7 @@ cargo install --path .
 typocode <path-to-file>
 ```
 
-Any UTF-8 text file works. Source code is the intended use — the
+Any UTF-8 text file works. Source code is the intended use, the
 pagination and strict-match rules are designed to make typing through
 a real codebase feel natural.
 
@@ -47,15 +44,9 @@ typocode ~/notes/algorithms.py
 | Key         | Action                                   |
 |-------------|------------------------------------------|
 | any char    | Type the next character.                 |
-| `Space`     | Same as typing a literal space.          |
-| `Enter`     | Commit the current line / advance page.  |
 | `Backspace` | Undo the most recent extra or character. |
 | `Tab`       | Restart the run.                         |
 | `Esc`       | Quit.                                    |
-
-Wrong keystrokes don't skip past the expected character — you have to
-backspace your mistake before the cursor advances. Accuracy counts
-every keystroke you make; backspacing doesn't penalise you.
 
 ## Features
 
@@ -71,8 +62,7 @@ every keystroke you make; backspacing doesn't penalise you.
 ## Non-goals (for now)
 
 - Word-aware wrapping. Char wrap keeps layout predictable for code.
-- WPM / words-per-minute stat — accuracy is the headline metric.
-- Themes, multiple languages, network leaderboards.
+- WPM / words-per-minute stat, accuracy and time are the headline metrics.
 
 ## License
 
