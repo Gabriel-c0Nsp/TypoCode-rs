@@ -4,7 +4,13 @@
 //! emits for the current [`Page`]. Labels are `None` on visual-wrap
 //! rows so the counter only increments on real source newlines (FR-05).
 
-use ratatui::{Frame, layout::Rect, text::Text, widgets::Paragraph};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::{Color, Style},
+    text::{Line, Span, Text},
+    widgets::Paragraph,
+};
 
 use crate::text::{Page, gutter_labels};
 
@@ -22,13 +28,13 @@ pub fn render(frame: &mut Frame, area: Rect, page: &Page, body_cols: u16, gutter
     let page_chars = page.chars();
     let labels = gutter_labels(&page_chars, body_cols as usize, page.line_start);
     let digit_width = gutter_width.saturating_sub(1) as usize;
-    let text = labels
+    let style = Style::default().fg(Color::Yellow);
+    let lines: Vec<Line<'static>> = labels
         .iter()
         .map(|label| match label {
-            Some(n) => format!("{n:>digit_width$} "),
-            None => " ".repeat(digit_width + 1),
+            Some(n) => Line::from(Span::styled(format!("{n:>digit_width$} "), style)),
+            None => Line::from(" ".repeat(digit_width + 1)),
         })
-        .collect::<Vec<_>>()
-        .join("\n");
-    frame.render_widget(Paragraph::new(Text::from(text)), area);
+        .collect();
+    frame.render_widget(Paragraph::new(Text::from(lines)), area);
 }

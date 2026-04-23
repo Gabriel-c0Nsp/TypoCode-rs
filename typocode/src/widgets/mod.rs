@@ -6,6 +6,8 @@
 //! these modules know about [`crate::app::App`] directly.
 
 pub mod body;
+pub mod chrome;
 pub mod footer;
 pub mod gutter;
+pub mod header;
 pub mod summary;
