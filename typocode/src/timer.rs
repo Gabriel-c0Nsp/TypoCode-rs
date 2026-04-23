@@ -82,7 +82,10 @@ mod tests {
         let t0 = Instant::now();
         sw.start(t0);
         assert!(sw.is_running());
-        assert_eq!(sw.elapsed(t0 + Duration::from_secs(3)), Duration::from_secs(3));
+        assert_eq!(
+            sw.elapsed(t0 + Duration::from_secs(3)),
+            Duration::from_secs(3)
+        );
     }
 
     #[test]
@@ -115,7 +118,10 @@ mod tests {
         sw.reset();
         let t1 = t0 + Duration::from_secs(10);
         sw.start(t1);
-        assert_eq!(sw.elapsed(t1 + Duration::from_secs(2)), Duration::from_secs(2));
+        assert_eq!(
+            sw.elapsed(t1 + Duration::from_secs(2)),
+            Duration::from_secs(2)
+        );
     }
 
     #[test]

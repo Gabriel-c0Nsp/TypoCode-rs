@@ -3,7 +3,7 @@
 //! TEA-inspired: the loop is `poll → handle_event → view`. Subsequent FR
 //! branches grow the state (pages, cursor, stats, timer) and the view.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use color_eyre::Result;
 use crossterm::event::{self, Event};
@@ -17,6 +17,7 @@ use ratatui::{
 
 use crate::file::SourceFile;
 use crate::text::{Cell, CellState, Page, Pages, gutter_labels, paginate};
+use crate::timer::{Stopwatch, format_mm_ss};
 use crate::update::{self, Msg};
 
 /// Combined keyboard / tick poll interval. A tick fires whenever
@@ -56,6 +57,7 @@ pub struct App {
     source: SourceFile,
     pages: Option<Pages>,
     cursor: Cursor,
+    stopwatch: Stopwatch,
     last_viewport_rows: u16,
     last_viewport_cols: u16,
     should_quit: bool,
@@ -79,6 +81,7 @@ impl App {
             source,
             pages: None,
             cursor: Cursor::default(),
+            stopwatch: Stopwatch::new(),
             last_viewport_rows: 0,
             last_viewport_cols: 0,
             should_quit: false,
@@ -137,6 +140,13 @@ impl App {
             return;
         };
         let outcome = update::update(pages, &mut self.cursor, msg);
+        // Timer starts on the first typing keystroke of the run and
+        // resets on Tab (restart), matching the C version's
+        // `started_test` flag. Quit is already handled above.
+        match msg {
+            Msg::Tab => self.stopwatch.reset(),
+            _ => self.stopwatch.start(Instant::now()),
+        }
         if outcome.should_quit {
             self.should_quit = true;
         }
@@ -175,10 +185,15 @@ impl App {
                     self.cursor.extras.len(),
                     body_area.width,
                 ));
+                let elapsed = format_mm_ss(self.stopwatch.elapsed(Instant::now()));
                 (
                     Text::from(gutter),
                     body,
-                    format!("page {} / {}", pages.current_index(), pages.total()),
+                    format!(
+                        "{elapsed}  page {} / {}",
+                        pages.current_index(),
+                        pages.total()
+                    ),
                 )
             }
             None => (Text::default(), Text::default(), String::new()),
