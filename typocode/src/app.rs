@@ -9,10 +9,10 @@ use color_eyre::Result;
 use crossterm::event::{self, Event};
 use ratatui::{
     DefaultTerminal, Frame,
-    layout::{Constraint, Layout, Rect},
-    style::{Color, Style},
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::Paragraph,
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 
 use crate::file::SourceFile;
@@ -47,6 +47,18 @@ impl Cursor {
     }
 }
 
+/// Lifecycle of the current typing run.
+///
+/// The app starts in [`Phase::Playing`] and transitions to
+/// [`Phase::Finished`] the moment the player reaches the end of the
+/// final page with no pending extras (FR-08). Tab in either phase
+/// restarts back to [`Phase::Playing`]; Esc quits from either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    Playing,
+    Finished,
+}
+
 /// Top-level application state.
 ///
 /// Pagination is deferred to the first render so [`Pages`] can be sized
@@ -60,6 +72,7 @@ pub struct App {
     cursor: Cursor,
     stopwatch: Stopwatch,
     stats: Stats,
+    phase: Phase,
     last_viewport_rows: u16,
     last_viewport_cols: u16,
     should_quit: bool,
@@ -85,6 +98,7 @@ impl App {
             cursor: Cursor::default(),
             stopwatch: Stopwatch::new(),
             stats: Stats::new(),
+            phase: Phase::Playing,
             last_viewport_rows: 0,
             last_viewport_cols: 0,
             should_quit: false,
@@ -139,6 +153,12 @@ impl App {
             self.should_quit = true;
             return;
         }
+        // On the finish screen only Tab (restart) is meaningful; every
+        // other key is swallowed so stray typing can't disturb the
+        // frozen summary.
+        if self.phase == Phase::Finished && !matches!(msg, Msg::Tab) {
+            return;
+        }
         let Some(pages) = self.pages.as_mut() else {
             return;
         };
@@ -150,6 +170,7 @@ impl App {
             Msg::Tab => {
                 self.stopwatch.reset();
                 self.stats.reset();
+                self.phase = Phase::Playing;
             }
             _ => self.stopwatch.start(Instant::now()),
         }
@@ -159,6 +180,24 @@ impl App {
         if outcome.should_quit {
             self.should_quit = true;
         }
+        if self.phase == Phase::Playing && self.is_run_complete() {
+            self.phase = Phase::Finished;
+            self.stopwatch.stop(Instant::now());
+        }
+    }
+
+    /// The run is complete when the player sits past the last cell of
+    /// the final page with no pending extras. Enter on the penultimate
+    /// cell advances `cu_ptr` to `cells.len()` (extras cleared by the
+    /// handler), which is the expected landing spot; typing the last
+    /// non-newline char does the same via `handle_char`.
+    fn is_run_complete(&self) -> bool {
+        let Some(pages) = &self.pages else {
+            return false;
+        };
+        pages.is_last()
+            && self.cursor.cu_ptr >= pages.current().cells.len()
+            && self.cursor.extras.is_empty()
     }
 
     fn view(&mut self, frame: &mut Frame) {
@@ -215,6 +254,13 @@ impl App {
 
         if let Some(pages) = &self.pages {
             draw_extras_overlay(frame, body_area, pages.current(), &self.cursor);
+        }
+
+        if self.phase == Phase::Finished {
+            let elapsed = format_mm_ss(self.stopwatch.elapsed(Instant::now()));
+            let accuracy = self.stats.accuracy_percent();
+            draw_summary_overlay(frame, body_area, &elapsed, accuracy);
+            return;
         }
 
         if let Some((col, row)) = cursor_screen {
@@ -330,6 +376,58 @@ fn styled_body(cells: &[Cell], cols: usize) -> Text<'static> {
         lines.push(Line::from(current));
     }
     Text::from(lines)
+}
+
+/// Renders the end-of-run summary centred inside `body_area`: elapsed
+/// time, accuracy, and the Tab / Esc hints. Uses [`Clear`] to erase
+/// the typed body underneath so the summary is always legible even on
+/// dense source files.
+fn draw_summary_overlay(frame: &mut Frame, body_area: Rect, elapsed: &str, accuracy: u8) {
+    let lines = [
+        Line::from(Span::styled(
+            "Run complete!",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(format!("Time:     {elapsed}")),
+        Line::from(format!("Accuracy: {accuracy}%")),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Tab to restart   Esc to quit",
+            Style::default().add_modifier(Modifier::DIM),
+        )),
+    ];
+    // Add 2 rows/cols for the border and a column of padding on each
+    // side so the longest line has breathing room.
+    let inner_height = lines.len() as u16;
+    let inner_width = lines.iter().map(|l| l.width() as u16).max().unwrap_or(0);
+    let height = inner_height.saturating_add(2);
+    let width = inner_width.saturating_add(4);
+    let block = Block::default().borders(Borders::ALL).title(" summary ");
+    if body_area.width < width || body_area.height < height {
+        // Viewport too small for the bordered panel — render without
+        // centering so the finish state stays visible on tiny layouts.
+        frame.render_widget(Clear, body_area);
+        frame.render_widget(
+            Paragraph::new(Text::from(lines.to_vec()))
+                .block(block)
+                .alignment(Alignment::Center),
+            body_area,
+        );
+        return;
+    }
+    let x = body_area.x + (body_area.width - width) / 2;
+    let y = body_area.y + (body_area.height - height) / 2;
+    let area = Rect::new(x, y, width, height);
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines.to_vec()))
+            .block(block)
+            .alignment(Alignment::Center),
+        area,
+    );
 }
 
 fn styled_span(cell: &Cell) -> Span<'static> {
