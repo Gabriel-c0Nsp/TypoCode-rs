@@ -2,5 +2,23 @@
 name = "typocode"
 version = "0.1.0"
 edition = "2024"
+authors = ["Gabriel Silva Aires <c0nsp1r4cy25909@gmail.com>"]
+description = "Terminal typing game that uses source code as practice text."
+repository = "https://github.com/Gabriel-c0Nsp/TypoCode-rs"
+license = "MIT"
+readme = "README.md"
+keywords = ["typing", "game", "tui", "ratatui", "terminal"]
+categories = ["command-line-utilities", "games"]
 
 [dependencies]
+ratatui = "0.30"
+crossterm = "0.29"
+clap = { version = "4", features = ["derive"] }
+color-eyre = "0.6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+[dev-dependencies]
+insta = { version = "1", features = ["yaml"] }
+mockall = "0.14"
