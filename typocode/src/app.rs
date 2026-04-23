@@ -41,6 +41,9 @@ pub struct Cursor {
 }
 
 impl Cursor {
+    /// Clears the cursor position and the extras buffer — used when
+    /// repagination invalidates page offsets and when Tab restarts
+    /// the run.
     pub fn reset(&mut self) {
         self.cu_ptr = 0;
         self.extras.clear();

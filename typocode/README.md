@@ -1,19 +1,13 @@
-# TypoCode-rs
+# typocode
 
 Terminal typing game that uses source code as practice text. Loads any
-text file, paginates it to fit your terminal, and walks you through it
-character by character — correct keystrokes turn green, wrong ones
-stack as red glyphs you must backspace before typing can resume. Live
-timer and accuracy in the footer; end-of-run summary with your final
+text file, paginates it to fit your terminal. Live timer and accuracy in the footer; end-of-run summary with your final
 time and accuracy.
 
-Rust rewrite of the original C
+Rust rewrite of the original C version
 [TypoCode](https://github.com/Gabriel-c0Nsp/TypoCode), built on
 [Ratatui](https://ratatui.rs) and `crossterm` for a faithful, resize-
 aware, cross-platform experience.
-
-The crate lives in [`typocode/`](./typocode) and is published to
-crates.io as `typocode`.
 
 ## Install
 
@@ -35,7 +29,7 @@ cargo install --path .
 typocode <path-to-file>
 ```
 
-Any UTF-8 text file works. Source code is the intended use — the
+Any UTF-8 text file works. Source code is the intended use, the
 pagination and strict-match rules are designed to make typing through
 a real codebase feel natural.
 
@@ -50,15 +44,9 @@ typocode ~/notes/algorithms.py
 | Key         | Action                                   |
 |-------------|------------------------------------------|
 | any char    | Type the next character.                 |
-| `Space`     | Same as typing a literal space.          |
-| `Enter`     | Commit the current line / advance page.  |
 | `Backspace` | Undo the most recent extra or character. |
 | `Tab`       | Restart the run.                         |
 | `Esc`       | Quit.                                    |
-
-Wrong keystrokes don't skip past the expected character — you have to
-backspace your mistake before the cursor advances. Accuracy counts
-every keystroke you make; backspacing doesn't penalise you.
 
 ## Features
 
@@ -71,20 +59,11 @@ every keystroke you make; backspacing doesn't penalise you.
 - Summary panel on completion showing final time + accuracy.
 - Tab to restart from the top with a clean slate.
 
-## Development
+## Non-goals (for now)
 
-```bash
-cd typocode
-cargo run -- path/to/file
-cargo test
-cargo clippy --all-targets -- -D warnings
-cargo fmt
-```
-
-Debugging the typing engine during play: each keystroke is logged to
-`typocode/tracing.log` via `tracing`, which you can tail from another
-shell.
+- Word-aware wrapping. Char wrap keeps layout predictable for code.
+- WPM / words-per-minute stat, accuracy and time are the headline metrics.
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+MIT. See [LICENSE](../LICENSE).

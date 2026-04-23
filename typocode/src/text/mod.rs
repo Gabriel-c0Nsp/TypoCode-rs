@@ -27,8 +27,7 @@ pub enum CellState {
 /// One typeable character plus the state of the player's last pass
 /// through it. Pagination, wrap and gutter helpers treat a cell's `ch`
 /// the same way they treated a raw `char` — layout is independent of
-/// state — so [`wrap`](crate::text::wrap) continues to own visual-row
-/// structure.
+/// state — so [`wrap`] continues to own visual-row structure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cell {
     pub ch: char,
