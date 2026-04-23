@@ -121,11 +121,14 @@ impl App {
 
     /// Builds or rebuilds [`Pages`] whenever the viewport dimensions
     /// change. Called before each render; the C version froze
-    /// pagination at startup and broke on resize — here we recompute so
-    /// layout always tracks the live row/column budget. The current
-    /// page index resets to 0 because page boundaries shift under the
-    /// new budget, and preserving the cursor across a reflow belongs
-    /// to later FRs.
+    /// pagination at startup and broke on resize. Here we recompute
+    /// against the live row/column budget and preserve typed progress
+    /// across the reflow: the global char offset derived from the old
+    /// `(page, cu_ptr)` is replayed into the new pagination via
+    /// [`Pages::restore_progress`], so cell colours (FR-03) and the
+    /// cursor survive a terminal resize. Pending extras are preserved
+    /// verbatim: wrong keystrokes that haven't been cleared stay on
+    /// screen at the new cursor position.
     fn ensure_paginated(&mut self, viewport_rows: u16, viewport_cols: u16) {
         if self.pages.is_some()
             && self.last_viewport_rows == viewport_rows
@@ -133,13 +136,22 @@ impl App {
         {
             return;
         }
+        let global_progress = self
+            .pages
+            .as_ref()
+            .map(|pages| pages.global_progress(self.cursor.cu_ptr));
         let pages = paginate(
             &self.source.content,
             viewport_rows as usize,
             viewport_cols as usize,
         );
         self.pages = Pages::new(pages);
-        self.cursor.reset();
+        match (self.pages.as_mut(), global_progress) {
+            (Some(pages), Some(global)) => {
+                self.cursor.cu_ptr = pages.restore_progress(global);
+            }
+            _ => self.cursor.reset(),
+        }
         self.last_viewport_rows = viewport_rows;
         self.last_viewport_cols = viewport_cols;
     }
@@ -488,5 +500,80 @@ mod tests {
     fn zero_body_cols_short_circuits_to_origin() {
         let cs = cells("abc");
         assert_eq!(cursor_screen_pos(&cs, 2, 0, 0), (0, 0));
+    }
+
+    fn app_with_source(content: &str) -> App {
+        let chars: Vec<char> = content.chars().collect();
+        let line_count = content.lines().count().max(1);
+        let source = SourceFile {
+            display_name: "test".to_string(),
+            content: chars,
+            line_count,
+        };
+        App::new(source)
+    }
+
+    #[test]
+    fn reflow_preserves_cursor_progress_and_cell_states() {
+        // Source fits on one page at 10x80, two pages at 2x80.
+        let mut app = app_with_source("line1\nline2\nline3\nline4\n");
+        app.ensure_paginated(10, 80);
+
+        // Type through the first 8 chars: "line1\nli".
+        use crate::update::Msg;
+        for ch in ['l', 'i', 'n', 'e', '1'] {
+            app.dispatch(Msg::Char(ch));
+        }
+        app.dispatch(Msg::Enter);
+        app.dispatch(Msg::Char('l'));
+        app.dispatch(Msg::Char('i'));
+        let before_global = app
+            .pages
+            .as_ref()
+            .unwrap()
+            .global_progress(app.cursor.cu_ptr);
+        assert!(before_global >= 8);
+
+        // Stash an extra so we can confirm it survives the resize too.
+        app.dispatch(Msg::Char('X'));
+        assert_eq!(app.cursor.extras, vec!['X']);
+
+        // Shrink the viewport — triggers repagination.
+        app.ensure_paginated(2, 80);
+
+        let after_global = app
+            .pages
+            .as_ref()
+            .unwrap()
+            .global_progress(app.cursor.cu_ptr);
+        assert_eq!(after_global, before_global);
+        assert_eq!(app.cursor.extras, vec!['X']);
+
+        // All cells up to the cursor are Correct; the rest are Pending.
+        let pages = app.pages.as_ref().unwrap();
+        let mut seen = 0usize;
+        for page in pages.iter() {
+            for cell in &page.cells {
+                let expected = if seen < after_global {
+                    CellState::Correct
+                } else {
+                    CellState::Pending
+                };
+                assert_eq!(cell.state, expected, "cell {seen}");
+                seen += 1;
+            }
+        }
+    }
+
+    #[test]
+    fn reflow_on_same_dimensions_is_noop() {
+        let mut app = app_with_source("abcdef");
+        app.ensure_paginated(5, 10);
+        use crate::update::Msg;
+        app.dispatch(Msg::Char('a'));
+        app.dispatch(Msg::Char('b'));
+        let ptr = app.cursor.cu_ptr;
+        app.ensure_paginated(5, 10);
+        assert_eq!(app.cursor.cu_ptr, ptr);
     }
 }
