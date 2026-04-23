@@ -11,17 +11,60 @@ pub mod wrap;
 pub use pagination::paginate;
 pub use wrap::{gutter_labels, visual_rows_for_line, wrap as wrap_content};
 
+/// Per-character state of a [`Cell`].
+///
+/// A cell is `Pending` until the typing engine commits it as `Correct`
+/// via a strict match. Wrong keystrokes never mutate cells — they pile
+/// into the cursor's extras buffer — so there's no `Wrong` variant
+/// here. Colour styling lives in the render layer (FR-03); this enum
+/// only encodes commit state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellState {
+    Pending,
+    Correct,
+}
+
+/// One typeable character plus the state of the player's last pass
+/// through it. Pagination, wrap and gutter helpers treat a cell's `ch`
+/// the same way they treated a raw `char` — layout is independent of
+/// state — so [`wrap`](crate::text::wrap) continues to own visual-row
+/// structure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cell {
+    pub ch: char,
+    pub state: CellState,
+}
+
+impl Cell {
+    /// Constructs a fresh cell for `ch` that hasn't been typed yet.
+    pub fn pending(ch: char) -> Self {
+        Self {
+            ch,
+            state: CellState::Pending,
+        }
+    }
+}
+
 /// A single page of expanded source text.
 ///
-/// `content` holds the characters to render (tabs already expanded by
-/// the file loader). `line_start` and `line_end` are the inclusive
-/// 1-based source-line range this page spans — used by the line-number
-/// gutter (FR-05) so visual wraps don't disturb the counter.
+/// `cells` holds the expected characters (tabs already expanded by the
+/// file loader) paired with their current typing state. `line_start`
+/// and `line_end` are the inclusive 1-based source-line range this
+/// page spans — used by the line-number gutter (FR-05) so visual wraps
+/// don't disturb the counter.
 #[derive(Debug, Clone)]
 pub struct Page {
-    pub content: Vec<char>,
+    pub cells: Vec<Cell>,
     pub line_start: usize,
     pub line_end: usize,
+}
+
+impl Page {
+    /// Collects the page's expected characters into a fresh `Vec<char>`
+    /// for layout helpers that don't care about state.
+    pub fn chars(&self) -> Vec<char> {
+        self.cells.iter().map(|c| c.ch).collect()
+    }
 }
 
 /// Ordered collection of [`Page`]s plus the currently displayed index.
@@ -50,6 +93,28 @@ impl Pages {
     /// input and `next`/`prev` are bounded.
     pub fn current(&self) -> &Page {
         &self.pages[self.current]
+    }
+
+    /// Mutable access to the current page — needed by the update layer
+    /// to mark cell states as the player types through them.
+    pub fn current_mut(&mut self) -> &mut Page {
+        &mut self.pages[self.current]
+    }
+
+    /// Whether the current page is the last one.
+    pub fn is_last(&self) -> bool {
+        self.current + 1 == self.pages.len()
+    }
+
+    /// Resets every cell on every page to [`CellState::Pending`] and
+    /// jumps back to the first page — the data-side of a restart.
+    pub fn restart(&mut self) {
+        for page in &mut self.pages {
+            for cell in &mut page.cells {
+                cell.state = CellState::Pending;
+            }
+        }
+        self.current = 0;
     }
 
     /// 1-based index of the current page, for display in the footer.
@@ -83,7 +148,7 @@ mod tests {
 
     fn page(content: &str, line_start: usize, line_end: usize) -> Page {
         Page {
-            content: content.chars().collect(),
+            cells: content.chars().map(Cell::pending).collect(),
             line_start,
             line_end,
         }
