@@ -10,11 +10,13 @@ use crossterm::event::{self, Event};
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Layout, Rect},
+    style::{Color, Style},
+    text::{Line, Span, Text},
     widgets::Paragraph,
 };
 
 use crate::file::SourceFile;
-use crate::text::{Cell, Page, Pages, gutter_labels, paginate, wrap_content};
+use crate::text::{Cell, CellState, Page, Pages, gutter_labels, paginate};
 use crate::update::{self, Msg};
 
 /// Combined keyboard / tick poll interval. A tick fires whenever
@@ -156,7 +158,6 @@ impl App {
             Some(pages) => {
                 let page = pages.current();
                 let page_chars = page.chars();
-                let rows = wrap_content(&page_chars, body_area.width as usize);
                 let labels = gutter_labels(&page_chars, body_area.width as usize, page.line_start);
                 let digit_width = (gutter_width.saturating_sub(1)) as usize;
                 let gutter = labels
@@ -167,11 +168,7 @@ impl App {
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                let body = rows
-                    .iter()
-                    .map(|row| row.iter().collect::<String>())
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                let body = styled_body(&page.cells, body_area.width as usize);
                 cursor_screen = Some(cursor_screen_pos(
                     &page.cells,
                     self.cursor.cu_ptr,
@@ -179,12 +176,12 @@ impl App {
                     body_area.width,
                 ));
                 (
-                    gutter,
+                    Text::from(gutter),
                     body,
                     format!("page {} / {}", pages.current_index(), pages.total()),
                 )
             }
-            None => (String::new(), String::new(), String::new()),
+            None => (Text::default(), Text::default(), String::new()),
         };
 
         frame.render_widget(Paragraph::new(gutter_text), gutter_area);
@@ -258,11 +255,13 @@ fn cursor_screen_pos(
 /// body. Each extra visually sits at the cell index `cu_ptr + i`
 /// (char-wrapped like the body). Space and newline inputs render as
 /// `_` so the player can see that a special key was pressed in the
-/// wrong place — matching the C version's underscore glyph.
+/// wrong place — matching the C version's underscore glyph. Extras
+/// are painted red (FR-03) so wrong keystrokes stand out.
 fn draw_extras_overlay(frame: &mut Frame, body_area: Rect, page: &Page, cursor: &Cursor) {
     if cursor.extras.is_empty() || body_area.width == 0 {
         return;
     }
+    let style = Style::default().fg(Color::Red);
     let buf = frame.buffer_mut();
     for (i, &ex) in cursor.extras.iter().enumerate() {
         let (col, row) = cursor_screen_pos(&page.cells, cursor.cu_ptr, i, body_area.width);
@@ -277,8 +276,43 @@ fn draw_extras_overlay(frame: &mut Frame, body_area: Rect, page: &Page, cursor: 
         };
         if let Some(cell) = buf.cell_mut((x, y)) {
             cell.set_char(display);
+            cell.set_style(style);
         }
     }
+}
+
+/// Lays out `cells` into styled visual rows at width `cols`, mirroring
+/// [`crate::text::wrap_content`] but emitting one [`Span`] per cell so
+/// the renderer can colour each character by its [`CellState`]. Correct
+/// cells are green, pending cells use the terminal default. `cols` is
+/// clamped to 1 to match the wrap helper.
+fn styled_body(cells: &[Cell], cols: usize) -> Text<'static> {
+    let cols = cols.max(1);
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut current: Vec<Span<'static>> = Vec::new();
+
+    for cell in cells {
+        if cell.ch == '\n' {
+            lines.push(Line::from(std::mem::take(&mut current)));
+            continue;
+        }
+        if current.len() == cols {
+            lines.push(Line::from(std::mem::take(&mut current)));
+        }
+        current.push(styled_span(cell));
+    }
+    if !current.is_empty() {
+        lines.push(Line::from(current));
+    }
+    Text::from(lines)
+}
+
+fn styled_span(cell: &Cell) -> Span<'static> {
+    let style = match cell.state {
+        CellState::Correct => Style::default().fg(Color::Green),
+        CellState::Pending => Style::default(),
+    };
+    Span::styled(cell.ch.to_string(), style)
 }
 
 #[cfg(test)]
