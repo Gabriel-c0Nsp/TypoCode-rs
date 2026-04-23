@@ -13,15 +13,23 @@
 use std::time::{Duration, Instant};
 
 /// Tracks the elapsed time of the current typing run.
+///
+/// Once [`stop`](Self::stop) is called the elapsed reading freezes —
+/// useful for the FR-08 summary screen so the displayed total doesn't
+/// keep ticking while the player reads it.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Stopwatch {
     started_at: Option<Instant>,
+    frozen: Option<Duration>,
 }
 
 impl Stopwatch {
     /// A fresh, idle stopwatch.
     pub fn new() -> Self {
-        Self { started_at: None }
+        Self {
+            started_at: None,
+            frozen: None,
+        }
     }
 
     /// Starts the stopwatch if it isn't already running. Subsequent
@@ -32,25 +40,44 @@ impl Stopwatch {
         }
     }
 
+    /// Freezes the elapsed reading at the value it has right now.
+    /// Subsequent [`elapsed`](Self::elapsed) calls return this frozen
+    /// value regardless of the `now` argument. A no-op if already
+    /// frozen or if the stopwatch was never started.
+    pub fn stop(&mut self, now: Instant) {
+        if self.frozen.is_some() {
+            return;
+        }
+        if let Some(started) = self.started_at {
+            self.frozen = Some(now.saturating_duration_since(started));
+        }
+    }
+
     /// Returns the time elapsed since [`start`] was first called, or
-    /// zero if the stopwatch is idle. Uses
+    /// the frozen total if [`stop`] has been called, or zero if the
+    /// stopwatch is idle. Uses
     /// [`Instant::saturating_duration_since`] so callers never observe
     /// a negative/panic if the passed `now` is somehow earlier than the
     /// recorded start — that can only happen under a mocked clock.
     pub fn elapsed(&self, now: Instant) -> Duration {
+        if let Some(frozen) = self.frozen {
+            return frozen;
+        }
         self.started_at
             .map(|s| now.saturating_duration_since(s))
             .unwrap_or_default()
     }
 
-    /// Returns the stopwatch to its idle state.
+    /// Returns the stopwatch to its idle state, clearing both the
+    /// running origin and any frozen total.
     pub fn reset(&mut self) {
         self.started_at = None;
+        self.frozen = None;
     }
 
-    /// Whether the stopwatch has been started.
+    /// Whether the stopwatch has been started and hasn't been frozen.
     pub fn is_running(&self) -> bool {
-        self.started_at.is_some()
+        self.started_at.is_some() && self.frozen.is_none()
     }
 }
 
@@ -122,6 +149,56 @@ mod tests {
             sw.elapsed(t1 + Duration::from_secs(2)),
             Duration::from_secs(2)
         );
+    }
+
+    #[test]
+    fn stop_freezes_elapsed_and_marks_not_running() {
+        let mut sw = Stopwatch::new();
+        let t0 = Instant::now();
+        sw.start(t0);
+        sw.stop(t0 + Duration::from_secs(5));
+        assert!(!sw.is_running());
+        assert_eq!(
+            sw.elapsed(t0 + Duration::from_secs(10)),
+            Duration::from_secs(5)
+        );
+    }
+
+    #[test]
+    fn stop_before_start_is_a_noop() {
+        let mut sw = Stopwatch::new();
+        let t0 = Instant::now();
+        sw.stop(t0 + Duration::from_secs(3));
+        assert_eq!(sw.elapsed(t0 + Duration::from_secs(5)), Duration::ZERO);
+        // Starting afterwards still works normally.
+        sw.start(t0 + Duration::from_secs(10));
+        assert_eq!(
+            sw.elapsed(t0 + Duration::from_secs(14)),
+            Duration::from_secs(4)
+        );
+    }
+
+    #[test]
+    fn second_stop_is_ignored() {
+        let mut sw = Stopwatch::new();
+        let t0 = Instant::now();
+        sw.start(t0);
+        sw.stop(t0 + Duration::from_secs(5));
+        sw.stop(t0 + Duration::from_secs(20));
+        assert_eq!(
+            sw.elapsed(t0 + Duration::from_secs(30)),
+            Duration::from_secs(5)
+        );
+    }
+
+    #[test]
+    fn reset_clears_frozen_total() {
+        let mut sw = Stopwatch::new();
+        let t0 = Instant::now();
+        sw.start(t0);
+        sw.stop(t0 + Duration::from_secs(5));
+        sw.reset();
+        assert_eq!(sw.elapsed(t0 + Duration::from_secs(10)), Duration::ZERO);
     }
 
     #[test]
