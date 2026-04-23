@@ -143,3 +143,69 @@ fn place_cursor(frame: &mut Frame, body_area: Rect, cursor_col: u16, cursor_row:
         frame.set_cursor_position((x, y));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file::SourceFile;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+
+    fn app_with_source(name: &str, content: &str) -> App {
+        let chars: Vec<char> = content.chars().collect();
+        let line_count = content.lines().count().max(1);
+        let source = SourceFile {
+            display_name: name.to_string(),
+            content: chars,
+            line_count,
+        };
+        App::new(source)
+    }
+
+    fn buffer_to_string(buf: &Buffer) -> String {
+        let area = buf.area();
+        let mut out = String::new();
+        for y in 0..area.height {
+            for x in 0..area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    fn render_frame(app: &mut App, cols: u16, rows: u16) -> String {
+        let backend = TestBackend::new(cols, rows);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(app, frame)).unwrap();
+        buffer_to_string(terminal.backend().buffer())
+    }
+
+    #[test]
+    fn bat_frame_default() {
+        let mut app = app_with_source("hello.rs", "fn main() {\n    println!(\"hi\");\n}\n");
+        insta::assert_snapshot!(render_frame(&mut app, 40, 10));
+    }
+
+    #[test]
+    fn bat_frame_with_wrong_keystroke_overlay() {
+        // Type 'f','n' correctly then a wrong 'X' — the extras overlay
+        // replaces the expected space with the typed 'X' in the body.
+        let mut app = app_with_source("hello.rs", "fn main() {\n    println!(\"hi\");\n}\n");
+        app.ensure_paginated(4, 36);
+        for ch in ['f', 'n', 'X'] {
+            app.dispatch(Msg::Char(ch));
+        }
+        insta::assert_snapshot!(render_frame(&mut app, 40, 10));
+    }
+
+    #[test]
+    fn small_viewport_falls_back_to_plain() {
+        let mut app = app_with_source("hello.rs", "abc");
+        // Viewport below the 7-row chrome budget falls back to plain.
+        insta::assert_snapshot!(render_frame(&mut app, 20, 5));
+    }
+
+    use crate::update::Msg;
+}

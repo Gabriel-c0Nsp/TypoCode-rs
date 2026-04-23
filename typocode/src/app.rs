@@ -158,7 +158,7 @@ impl App {
         self.dispatch(msg);
     }
 
-    fn dispatch(&mut self, msg: Msg) {
+    pub(crate) fn dispatch(&mut self, msg: Msg) {
         if matches!(msg, Msg::Quit) {
             self.should_quit = true;
             return;
