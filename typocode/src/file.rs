@@ -1,8 +1,12 @@
 //! Source-file loading.
 //!
 //! Reads a UTF-8 source file from disk, expands tabs to [`TAB_WIDTH`]
-//! spaces, and rejects empty inputs — matching the semantics of the
-//! original C version's `file/file.c` and `buffer/buffer.c`.
+//! spaces, normalises a handful of un-typeable typographic codepoints
+//! to their ASCII equivalents, and rejects empty inputs — matching the
+//! semantics of the original C version's `file/file.c` and
+//! `buffer/buffer.c`, with the normalisation added because strict-match
+//! typing would otherwise stall on characters a standard keyboard
+//! can't produce (em dash, smart quotes, NBSP).
 
 use std::fs;
 use std::path::Path;
@@ -11,6 +15,20 @@ use color_eyre::eyre::{Context, Result, bail};
 
 /// Number of spaces each `\t` in the source expands to.
 pub const TAB_WIDTH: usize = 2;
+
+/// Rewrites a typographic character to an ASCII equivalent that can
+/// actually be typed on a standard keyboard. Unhandled codepoints pass
+/// through unchanged so legitimate source-code content (comparison
+/// operators, arrows written as `->`, etc.) stays intact.
+fn normalize_char(c: char) -> char {
+    match c {
+        '\u{2013}' | '\u{2014}' => '-',  // en/em dashes
+        '\u{2018}' | '\u{2019}' => '\'', // curly single quotes
+        '\u{201C}' | '\u{201D}' => '"',  // curly double quotes
+        '\u{00A0}' | '\u{202F}' => ' ',  // no-break / narrow no-break
+        _ => c,
+    }
+}
 
 /// A source file loaded into memory with tabs expanded.
 ///
@@ -49,7 +67,7 @@ pub(crate) fn parse(raw: &str) -> Result<SourceFile> {
         if c == '\t' {
             content.extend(std::iter::repeat_n(' ', TAB_WIDTH));
         } else {
-            content.push(c);
+            content.push(normalize_char(c));
         }
     }
 
@@ -108,5 +126,32 @@ mod tests {
         assert_eq!(parse("single").unwrap().line_count, 1);
         assert_eq!(parse("a\nb\nc").unwrap().line_count, 3);
         assert_eq!(parse("a\nb\nc\n").unwrap().line_count, 3);
+    }
+
+    #[test]
+    fn normalizes_em_and_en_dashes_to_hyphen() {
+        let parsed = parse("a\u{2014}b\u{2013}c").unwrap();
+        assert_eq!(parsed.content, vec!['a', '-', 'b', '-', 'c']);
+    }
+
+    #[test]
+    fn normalizes_smart_quotes_to_straight_quotes() {
+        let parsed = parse("\u{201C}hi\u{201D} \u{2018}x\u{2019}").unwrap();
+        assert_eq!(
+            parsed.content,
+            vec!['"', 'h', 'i', '"', ' ', '\'', 'x', '\'']
+        );
+    }
+
+    #[test]
+    fn normalizes_non_breaking_spaces_to_regular_spaces() {
+        let parsed = parse("a\u{00A0}b\u{202F}c").unwrap();
+        assert_eq!(parsed.content, vec!['a', ' ', 'b', ' ', 'c']);
+    }
+
+    #[test]
+    fn leaves_unrelated_characters_untouched() {
+        let parsed = parse("café-→").unwrap();
+        assert_eq!(parsed.content, vec!['c', 'a', 'f', 'é', '-', '→']);
     }
 }
