@@ -13,3 +13,5 @@ pub mod stats;
 pub mod text;
 pub mod timer;
 pub mod update;
+pub mod view;
+pub mod widgets;

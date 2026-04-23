@@ -1,0 +1,10 @@
+---
+source: src/view.rs
+assertion_line: 207
+expression: "render_frame(&mut app, 20, 5)"
+---
+1 abc               
+                    
+                    
+                    
+00:00  100%  Page: 1
