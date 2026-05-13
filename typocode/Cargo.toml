@@ -10,6 +10,10 @@ readme = "README.md"
 keywords = ["typing", "game", "tui", "ratatui", "terminal"]
 categories = ["command-line-utilities", "games"]
 
+[[bin]]
+name = "typo"
+path = "src/main.rs"
+
 [dependencies]
 ratatui = "0.30"
 crossterm = "0.29"
