@@ -5,7 +5,9 @@
 //! declaring a `const LanguageSpec` in a `languages/*.rs` file and
 //! pushing a reference into the slice below.
 
-use super::languages::{c_family, hash_line};
+use super::languages::{
+    c_family, erlang, hash_line, haskell, julia, lisp, lua, markup, misc, ml, sql,
+};
 use super::spec::LanguageSpec;
 
 /// Every language the built-in stripper recognises. Future user-defined
@@ -32,6 +34,28 @@ pub const ALL: &[&LanguageSpec] = &[
     &hash_line::ELIXIR,
     &hash_line::R,
     &hash_line::PERL,
+    &lua::LUA,
+    &haskell::HASKELL,
+    &haskell::ELM,
+    &haskell::PURESCRIPT,
+    &sql::SQL,
+    &markup::HTML,
+    &markup::XML,
+    &markup::SVG,
+    &markup::MARKDOWN,
+    &lisp::CLOJURE,
+    &lisp::COMMON_LISP,
+    &lisp::SCHEME,
+    &lisp::RACKET,
+    &ml::OCAML,
+    &ml::FSHARP,
+    &ml::SML,
+    &erlang::ERLANG,
+    &julia::JULIA,
+    &misc::NIM,
+    &misc::CRYSTAL,
+    &misc::ZIG,
+    &misc::GLEAM,
 ];
 
 /// Looks up a language by case-insensitive file extension (without the

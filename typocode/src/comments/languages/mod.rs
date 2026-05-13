@@ -5,7 +5,16 @@
 //! single lookup slice.
 
 pub mod c_family;
+pub mod erlang;
 pub mod hash_line;
+pub mod haskell;
+pub mod julia;
+pub mod lisp;
+pub mod lua;
+pub mod markup;
+pub mod misc;
+pub mod ml;
+pub mod sql;
 
 #[cfg(test)]
 pub(crate) fn assert_strip(spec: &super::spec::LanguageSpec, input: &str, expected: &str) {
