@@ -86,9 +86,13 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt
 ```
 
-Debugging the typing engine during play: each keystroke is logged to
-`typocode/tracing.log` via `tracing`, which you can tail from another
-shell.
+Debugging the typing engine during play: file logging is disabled by
+default to avoid creating `tracing.log` in the working directory on
+every run. To enable it, uncomment the `logging::init()?` call in
+`typocode/src/main.rs`. Once enabled, each keystroke is logged to
+`tracing.log` (written to the current working directory) via
+`tracing`, which you can tail from another shell. Use the `RUST_LOG`
+env var to adjust the filter level (defaults to `info`).
 
 ## License
 
