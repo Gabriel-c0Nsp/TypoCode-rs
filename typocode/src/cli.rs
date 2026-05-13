@@ -28,6 +28,13 @@ pub struct Cli {
     #[allow(dead_code)]
     version: Option<bool>,
 
+    /// Strip comments from the source before the run.
+    ///
+    /// The language is auto-detected from the file extension; files in
+    /// languages the stripper doesn't recognise pass through unchanged.
+    #[arg(short = 'C', long = "no-comments")]
+    pub no_comments: bool,
+
     /// Path to the source file to load as the typing challenge.
     pub path: PathBuf,
 }

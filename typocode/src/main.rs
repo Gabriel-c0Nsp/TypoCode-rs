@@ -12,6 +12,9 @@ fn main() -> color_eyre::Result<()> {
     // the `RUST_LOG` env var (defaults to `info`).
     // let _log_guard = logging::init()?;
     let cli = Cli::parse_args();
-    let source = file::load(&cli.path, file::LoadOptions::default())?;
+    let opts = file::LoadOptions {
+        strip_comments: cli.no_comments,
+    };
+    let source = file::load(&cli.path, opts)?;
     app::run(source)
 }
