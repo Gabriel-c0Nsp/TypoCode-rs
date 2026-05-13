@@ -47,7 +47,11 @@ mod tests {
 
     #[test]
     fn ocaml_block_drops_line() {
-        assert_strip(&OCAML, "let x = 1\n(* doc *)\nlet y = 2\n", "let x = 1\nlet y = 2\n");
+        assert_strip(
+            &OCAML,
+            "let x = 1\n(* doc *)\nlet y = 2\n",
+            "let x = 1\nlet y = 2\n",
+        );
     }
 
     #[test]
@@ -74,6 +78,10 @@ mod tests {
 
     #[test]
     fn sml_block_drops_line() {
-        assert_strip(&SML, "val x = 1\n(* doc *)\nval y = 2\n", "val x = 1\nval y = 2\n");
+        assert_strip(
+            &SML,
+            "val x = 1\n(* doc *)\nval y = 2\n",
+            "val x = 1\nval y = 2\n",
+        );
     }
 }

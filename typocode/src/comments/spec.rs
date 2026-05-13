@@ -37,20 +37,14 @@ pub struct BlockComment {
 #[derive(Debug, Clone, Copy)]
 pub enum StringLiteral {
     /// `"..."` or `'...'`, optionally honouring a backslash escape.
-    Simple {
-        delim: char,
-        escape: Option<char>,
-    },
+    Simple { delim: char, escape: Option<char> },
     /// Python-style triple-quoted string (`"""..."""` or `'''...'''`).
     Triple { delim: char },
     /// JavaScript template literal — `` `...` `` with backslash escapes.
     Backtick,
     /// Rust raw string: `r"..."`, `r#"..."#`, `r##"..."##`, ... Closing
     /// requires the same number of `#` as the opening sequence.
-    RawHash {
-        prefix: &'static str,
-        delim: char,
-    },
+    RawHash { prefix: &'static str, delim: char },
     /// Lua long bracket string: `[=*[ ... ]=*]`. Open and close levels
     /// must agree, identical to `BlockComment { long_bracket: true }`.
     LongBracket,

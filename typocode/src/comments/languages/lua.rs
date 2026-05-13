@@ -47,11 +47,7 @@ mod tests {
 
     #[test]
     fn long_bracket_block_drops_lines() {
-        assert_strip(
-            &LUA,
-            "code\n--[[\n block\n]]\nmore\n",
-            "code\nmore\n",
-        );
+        assert_strip(&LUA, "code\n--[[\n block\n]]\nmore\n", "code\nmore\n");
     }
 
     #[test]

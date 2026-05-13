@@ -25,29 +25,17 @@ mod tests {
 
     #[test]
     fn line_comment_drops_line() {
-        assert_strip(
-            &SQL,
-            "-- header\nSELECT 1;\n",
-            "SELECT 1;\n",
-        );
+        assert_strip(&SQL, "-- header\nSELECT 1;\n", "SELECT 1;\n");
     }
 
     #[test]
     fn line_comment_after_code_preserves_code() {
-        assert_strip(
-            &SQL,
-            "SELECT 1; -- tail\n",
-            "SELECT 1;\n",
-        );
+        assert_strip(&SQL, "SELECT 1; -- tail\n", "SELECT 1;\n");
     }
 
     #[test]
     fn block_comment_drops_line() {
-        assert_strip(
-            &SQL,
-            "code;\n/* doc */\nmore;\n",
-            "code;\nmore;\n",
-        );
+        assert_strip(&SQL, "code;\n/* doc */\nmore;\n", "code;\nmore;\n");
     }
 
     #[test]
