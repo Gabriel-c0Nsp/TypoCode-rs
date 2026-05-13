@@ -4,13 +4,20 @@
     claude-code-nix.url = "github:sadjow/claude-code-nix";
   };
 
-  outputs = { self, nixpkgs, claude-code-nix, ... }:
+  outputs = { nixpkgs, claude-code-nix, ... }:
     let
-      system = "x86_64-linux"; # pick your system
+      system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
-    in {
+    in
+    {
       devShells.${system}.default = pkgs.mkShell {
-        packages = [ claude-code-nix.packages.${system}.claude-code ];
+        packages = [
+          pkgs.cargo
+          pkgs.rustc
+          pkgs.rustfmt
+
+          claude-code-nix.packages.${system}.claude-code # dev experience
+        ];
       };
     };
 }
