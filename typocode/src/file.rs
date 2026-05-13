@@ -235,11 +235,7 @@ mod tests {
 
     fn write_temp_file(name: &str, body: &str) -> std::path::PathBuf {
         let mut path = std::env::temp_dir();
-        path.push(format!(
-            "typocode-test-{}-{}",
-            std::process::id(),
-            name
-        ));
+        path.push(format!("typocode-test-{}-{}", std::process::id(), name));
         fs::write(&path, body).expect("write tempfile");
         path
     }

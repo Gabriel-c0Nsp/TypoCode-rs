@@ -89,10 +89,6 @@ mod tests {
 
     #[test]
     fn purescript_block_drops_line() {
-        assert_strip(
-            &PURESCRIPT,
-            "x = 1\n{- doc -}\ny = 2\n",
-            "x = 1\ny = 2\n",
-        );
+        assert_strip(&PURESCRIPT, "x = 1\n{- doc -}\ny = 2\n", "x = 1\ny = 2\n");
     }
 }

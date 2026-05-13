@@ -302,11 +302,7 @@ mod tests {
 
     #[test]
     fn csharp_line_comment_drops_line() {
-        assert_strip(
-            &CSHARP,
-            "// header\nclass X {}\n",
-            "class X {}\n",
-        );
+        assert_strip(&CSHARP, "// header\nclass X {}\n", "class X {}\n");
     }
 
     #[test]

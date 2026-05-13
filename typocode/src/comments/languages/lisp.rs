@@ -58,11 +58,7 @@ mod tests {
 
     #[test]
     fn clojure_line_comment_drops_line() {
-        assert_strip(
-            &CLOJURE,
-            "; header\n(defn f [] 1)\n",
-            "(defn f [] 1)\n",
-        );
+        assert_strip(&CLOJURE, "; header\n(defn f [] 1)\n", "(defn f [] 1)\n");
     }
 
     #[test]
@@ -73,11 +69,7 @@ mod tests {
 
     #[test]
     fn common_lisp_block_drops_line() {
-        assert_strip(
-            &COMMON_LISP,
-            "code\n#| doc |#\nmore\n",
-            "code\nmore\n",
-        );
+        assert_strip(&COMMON_LISP, "code\n#| doc |#\nmore\n", "code\nmore\n");
     }
 
     #[test]
@@ -88,10 +80,6 @@ mod tests {
 
     #[test]
     fn racket_line_comment_drops_line() {
-        assert_strip(
-            &RACKET,
-            "; header\n(define x 1)\n",
-            "(define x 1)\n",
-        );
+        assert_strip(&RACKET, "; header\n(define x 1)\n", "(define x 1)\n");
     }
 }

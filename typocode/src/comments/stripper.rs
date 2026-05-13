@@ -2,9 +2,9 @@
 //!
 //! Two passes:
 //! 1. A state-machine scan classifies every byte of the input as
-//!    [`Class::Code`] (kept) or [`Class::Comment`] (dropped). String
-//!    literals are classified as code so a comment-looking marker that
-//!    lives inside data never triggers stripping.
+//!    either kept (code) or dropped (comment). String literals are
+//!    classified as code so a comment-looking marker that lives
+//!    inside data never triggers stripping.
 //! 2. A line-pruning post-pass walks the input line by line: if a line
 //!    contained any comment-classified byte AND nothing but whitespace
 //!    survives the filter, the entire line plus its trailing newline

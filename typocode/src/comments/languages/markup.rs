@@ -71,29 +71,17 @@ mod tests {
 
     #[test]
     fn html_block_spans_lines() {
-        assert_strip(
-            &HTML,
-            "<x/>\n<!-- a\n   b -->\n<y/>\n",
-            "<x/>\n<y/>\n",
-        );
+        assert_strip(&HTML, "<x/>\n<!-- a\n   b -->\n<y/>\n", "<x/>\n<y/>\n");
     }
 
     #[test]
     fn xml_block_drops_line() {
-        assert_strip(
-            &XML,
-            "<root>\n<!-- doc -->\n</root>\n",
-            "<root>\n</root>\n",
-        );
+        assert_strip(&XML, "<root>\n<!-- doc -->\n</root>\n", "<root>\n</root>\n");
     }
 
     #[test]
     fn svg_block_drops_line() {
-        assert_strip(
-            &SVG,
-            "<svg>\n<!-- doc -->\n</svg>\n",
-            "<svg>\n</svg>\n",
-        );
+        assert_strip(&SVG, "<svg>\n<!-- doc -->\n</svg>\n", "<svg>\n</svg>\n");
     }
 
     #[test]
