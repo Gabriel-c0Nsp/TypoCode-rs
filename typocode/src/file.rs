@@ -10,6 +10,7 @@
 //! stall on characters a standard keyboard can't produce (em dash,
 //! smart quotes, NBSP).
 
+use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 
@@ -45,16 +46,34 @@ pub struct SourceFile {
     pub line_count: usize,
 }
 
-/// Loads `path` as UTF-8, expands tabs, and validates the result.
+/// Optional behaviours applied during [`load`]. Grouped into a struct
+/// so additional preprocessing knobs (line caps, include expansion,
+/// etc.) can land without churning the public signature.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LoadOptions {
+    /// When `true`, comments are removed from the raw text before any
+    /// other processing. Languages are detected from the file
+    /// extension; unknown extensions silently pass through.
+    pub strip_comments: bool,
+}
+
+/// Loads `path` as UTF-8, optionally strips comments, expands tabs,
+/// and validates the result.
 ///
 /// # Errors
 ///
 /// Fails on I/O errors, non-UTF-8 content, or when the resulting
 /// expanded text is empty — you can't play a typing game on a blank
 /// file.
-pub fn load(path: &Path) -> Result<SourceFile> {
+pub fn load(path: &Path, opts: LoadOptions) -> Result<SourceFile> {
     let raw = fs::read_to_string(path)
         .wrap_err_with(|| format!("failed to read `{}`", path.display()))?;
+    let raw = if opts.strip_comments {
+        let ext = path.extension().and_then(OsStr::to_str);
+        crate::comments::strip_by_extension(&raw, ext).unwrap_or(raw)
+    } else {
+        raw
+    };
     let mut source = parse(&raw)?;
     source.display_name = basename(path);
     Ok(source)
@@ -212,5 +231,59 @@ mod tests {
             err.to_string().contains("empty"),
             "expected empty-file error, got: {err}"
         );
+    }
+
+    fn write_temp_file(name: &str, body: &str) -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "typocode-test-{}-{}",
+            std::process::id(),
+            name
+        ));
+        fs::write(&path, body).expect("write tempfile");
+        path
+    }
+
+    #[test]
+    fn load_with_strip_comments_removes_rust_comments() {
+        let path = write_temp_file(
+            "strip.rs",
+            "// header\nfn main() {\n    println!(\"hi\");\n}\n",
+        );
+        let source = load(
+            &path,
+            LoadOptions {
+                strip_comments: true,
+            },
+        )
+        .unwrap();
+        let text: String = source.content.iter().collect();
+        assert!(!text.contains("header"));
+        assert!(text.contains("fn main"));
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_with_strip_comments_passes_through_unknown_extension() {
+        let path = write_temp_file("passthrough.unknownext", "// keep me\nbody\n");
+        let source = load(
+            &path,
+            LoadOptions {
+                strip_comments: true,
+            },
+        )
+        .unwrap();
+        let text: String = source.content.iter().collect();
+        assert!(text.contains("keep me"));
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_without_strip_comments_keeps_comments() {
+        let path = write_temp_file("keep.rs", "// keep\nfn main() {}\n");
+        let source = load(&path, LoadOptions::default()).unwrap();
+        let text: String = source.content.iter().collect();
+        assert!(text.contains("keep"));
+        let _ = fs::remove_file(&path);
     }
 }

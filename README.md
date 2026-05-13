@@ -50,6 +50,29 @@ typo README.md
 typo ~/notes/algorithms.py
 ```
 
+### Stripping comments
+
+Pass `--no-comments` (or `-C`) to remove comments before the run. The
+language is auto-detected from the file extension; files in
+unsupported languages pass through unchanged.
+
+```bash
+typo --no-comments src/main.rs
+typo -C app.py
+```
+
+Supported languages include Rust, C, C++, Java, JavaScript,
+TypeScript, Go, Swift, Kotlin, Scala, C#, Dart, PHP, Python, Ruby,
+Bash, Fish, Elixir, R, Perl, Lua, Haskell, Elm, PureScript, SQL,
+HTML, XML, SVG, Markdown, Clojure, Common Lisp, Scheme, Racket,
+OCaml, F#, SML, Erlang, Julia, Nim, Crystal, Zig, and Gleam.
+
+Both line and block comments are removed. Lines that contain only a
+comment (plus whitespace) disappear entirely, so the player never
+has to type through a hole left by a removed comment. String literals
+are respected, so a comment-looking marker inside a string is left
+alone.
+
 ## Controls
 
 | Key         | Action                                   |

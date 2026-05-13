@@ -6,6 +6,7 @@
 
 pub mod app;
 pub mod cli;
+pub mod comments;
 pub mod errors;
 pub mod file;
 pub mod logging;
