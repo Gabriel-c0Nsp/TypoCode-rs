@@ -13,7 +13,7 @@ use clap::{ArgAction, Parser};
 /// Pass a path to the file you want to type through. `--help` / `-h` prints
 /// usage; `--version`, `-V`, and `-v` all print the crate version.
 #[derive(Debug, Parser)]
-#[command(name = "typocode", version, about, long_about = None, disable_version_flag = true)]
+#[command(name = "typo", version, about, long_about = None, disable_version_flag = true)]
 pub struct Cli {
     /// Print version information and exit.
     ///

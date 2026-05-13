@@ -1,6 +1,6 @@
 [package]
 name = "typocode"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 authors = ["Gabriel Silva Aires <c0nsp1r4cy25909@gmail.com>"]
 description = "Terminal typing game that uses source code as practice text."
@@ -9,6 +9,10 @@ license = "MIT"
 readme = "README.md"
 keywords = ["typing", "game", "tui", "ratatui", "terminal"]
 categories = ["command-line-utilities", "games"]
+
+[[bin]]
+name = "typo"
+path = "src/main.rs"
 
 [dependencies]
 ratatui = "0.30"

@@ -287,4 +287,41 @@ mod tests {
         app.ensure_paginated(5, 10);
         assert_eq!(app.cursor.cu_ptr, ptr);
     }
+
+    #[test]
+    fn typing_last_char_correctly_auto_finishes_run() {
+        let mut app = app_with_source("abc");
+        app.ensure_paginated(10, 80);
+        for ch in ['a', 'b', 'c'] {
+            app.dispatch(Msg::Char(ch));
+        }
+        assert_eq!(app.phase, Phase::Finished);
+    }
+
+    #[test]
+    fn typing_last_char_wrong_keeps_run_active() {
+        let mut app = app_with_source("abc");
+        app.ensure_paginated(10, 80);
+        app.dispatch(Msg::Char('a'));
+        app.dispatch(Msg::Char('b'));
+        app.dispatch(Msg::Char('x'));
+        assert_eq!(app.phase, Phase::Playing);
+        assert_eq!(app.cursor.extras, vec!['x']);
+
+        app.dispatch(Msg::Backspace);
+        app.dispatch(Msg::Char('c'));
+        assert_eq!(app.phase, Phase::Finished);
+    }
+
+    #[test]
+    fn trailing_blank_lines_do_not_require_extra_enter() {
+        let chars: Vec<char> = "abc\n\n\n".chars().collect();
+        let source = crate::file::parse(&chars.iter().collect::<String>()).unwrap();
+        let mut app = App::new(source);
+        app.ensure_paginated(10, 80);
+        for ch in ['a', 'b', 'c'] {
+            app.dispatch(Msg::Char(ch));
+        }
+        assert_eq!(app.phase, Phase::Finished);
+    }
 }

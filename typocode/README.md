@@ -26,17 +26,20 @@ cargo install --path .
 ## Usage
 
 ```bash
-typocode <path-to-file>
+typo <path-to-file>
 ```
+
+The crate is published as `typocode`, but the installed binary is
+`typo`, matching the original C version's command name.
 
 Any UTF-8 text file works. Source code is the intended use, the
 pagination and strict-match rules are designed to make typing through
 a real codebase feel natural.
 
 ```bash
-typocode src/main.rs
-typocode README.md
-typocode ~/notes/algorithms.py
+typo src/main.rs
+typo README.md
+typo ~/notes/algorithms.py
 ```
 
 ## Controls

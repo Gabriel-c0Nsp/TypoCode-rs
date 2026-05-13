@@ -1,12 +1,14 @@
 //! Source-file loading.
 //!
-//! Reads a UTF-8 source file from disk, expands tabs to [`TAB_WIDTH`]
-//! spaces, normalises a handful of un-typeable typographic codepoints
-//! to their ASCII equivalents, and rejects empty inputs — matching the
-//! semantics of the original C version's `file/file.c` and
-//! `buffer/buffer.c`, with the normalisation added because strict-match
-//! typing would otherwise stall on characters a standard keyboard
-//! can't produce (em dash, smart quotes, NBSP).
+//! Reads a UTF-8 source file from disk, trims trailing blank lines and
+//! whitespace so the run can finish the moment the last visible
+//! character is typed, expands tabs to [`TAB_WIDTH`] spaces, normalises
+//! a handful of un-typeable typographic codepoints to their ASCII
+//! equivalents, and rejects empty inputs — matching the semantics of
+//! the original C version's `file/file.c` and `buffer/buffer.c`, with
+//! the normalisation added because strict-match typing would otherwise
+//! stall on characters a standard keyboard can't produce (em dash,
+//! smart quotes, NBSP).
 
 use std::fs;
 use std::path::Path;
@@ -58,10 +60,17 @@ pub fn load(path: &Path) -> Result<SourceFile> {
     Ok(source)
 }
 
-/// Pure helper: expands tabs in `raw`, counts source lines, and returns
-/// a [`SourceFile`] with an empty `display_name`. Exposed at crate level
-/// so tests can exercise the expansion logic without touching disk.
+/// Pure helper: trims trailing blank lines and whitespace, expands
+/// tabs in `raw`, counts source lines, and returns a [`SourceFile`]
+/// with an empty `display_name`. Exposed at crate level so tests can
+/// exercise the parsing logic without touching disk.
 pub(crate) fn parse(raw: &str) -> Result<SourceFile> {
+    // Trim trailing blank lines and whitespace so the final cell is a
+    // visible character: this lets the run auto-finish the moment the
+    // player types it correctly, instead of forcing them to hit Enter
+    // through every trailing newline.
+    let raw = raw.trim_end_matches(['\n', '\r', ' ', '\t']);
+
     let mut content = Vec::with_capacity(raw.len());
     for c in raw.chars() {
         match c {
@@ -120,7 +129,7 @@ mod tests {
     #[test]
     fn preserves_utf8_multibyte_chars() {
         let parsed = parse("café\n").unwrap();
-        assert_eq!(parsed.content, vec!['c', 'a', 'f', 'é', '\n']);
+        assert_eq!(parsed.content, vec!['c', 'a', 'f', 'é']);
     }
 
     #[test]
@@ -167,5 +176,41 @@ mod tests {
     fn strips_standalone_carriage_returns() {
         let parsed = parse("a\rb").unwrap();
         assert_eq!(parsed.content, vec!['a', 'b']);
+    }
+
+    #[test]
+    fn strips_trailing_blank_lines() {
+        let parsed = parse("abc\n\n\n").unwrap();
+        assert_eq!(parsed.content, vec!['a', 'b', 'c']);
+        assert_eq!(parsed.line_count, 1);
+    }
+
+    #[test]
+    fn strips_trailing_whitespace_inside_last_line() {
+        let parsed = parse("abc   \t  ").unwrap();
+        assert_eq!(parsed.content, vec!['a', 'b', 'c']);
+    }
+
+    #[test]
+    fn strips_mixed_trailing_blank_lines_and_whitespace() {
+        let parsed = parse("a\nb\n   \n\t\n").unwrap();
+        assert_eq!(parsed.content, vec!['a', '\n', 'b']);
+        assert_eq!(parsed.line_count, 2);
+    }
+
+    #[test]
+    fn preserves_internal_blank_lines() {
+        let parsed = parse("a\n\nb\n").unwrap();
+        assert_eq!(parsed.content, vec!['a', '\n', '\n', 'b']);
+        assert_eq!(parsed.line_count, 3);
+    }
+
+    #[test]
+    fn whitespace_only_file_rejected_as_empty() {
+        let err = parse("\n\n   \t\n").unwrap_err();
+        assert!(
+            err.to_string().contains("empty"),
+            "expected empty-file error, got: {err}"
+        );
     }
 }
