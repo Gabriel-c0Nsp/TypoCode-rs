@@ -5,7 +5,7 @@
 //! declaring a `const LanguageSpec` in a `languages/*.rs` file and
 //! pushing a reference into the slice below.
 
-use super::languages::c_family;
+use super::languages::{c_family, hash_line};
 use super::spec::LanguageSpec;
 
 /// Every language the built-in stripper recognises. Future user-defined
@@ -25,6 +25,13 @@ pub const ALL: &[&LanguageSpec] = &[
     &c_family::CSHARP,
     &c_family::DART,
     &c_family::PHP,
+    &hash_line::PYTHON,
+    &hash_line::RUBY,
+    &hash_line::BASH,
+    &hash_line::FISH,
+    &hash_line::ELIXIR,
+    &hash_line::R,
+    &hash_line::PERL,
 ];
 
 /// Looks up a language by case-insensitive file extension (without the

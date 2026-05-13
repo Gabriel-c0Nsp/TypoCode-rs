@@ -5,6 +5,7 @@
 //! single lookup slice.
 
 pub mod c_family;
+pub mod hash_line;
 
 #[cfg(test)]
 pub(crate) fn assert_strip(spec: &super::spec::LanguageSpec, input: &str, expected: &str) {
