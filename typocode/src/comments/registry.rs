@@ -5,12 +5,27 @@
 //! declaring a `const LanguageSpec` in a `languages/*.rs` file and
 //! pushing a reference into the slice below.
 
+use super::languages::c_family;
 use super::spec::LanguageSpec;
 
 /// Every language the built-in stripper recognises. Future user-defined
 /// specs would be appended to a separate runtime registry that this
 /// slice does not need to know about.
-pub const ALL: &[&LanguageSpec] = &[];
+pub const ALL: &[&LanguageSpec] = &[
+    &c_family::RUST,
+    &c_family::C,
+    &c_family::CPP,
+    &c_family::JAVA,
+    &c_family::JAVASCRIPT,
+    &c_family::TYPESCRIPT,
+    &c_family::GO,
+    &c_family::SWIFT,
+    &c_family::KOTLIN,
+    &c_family::SCALA,
+    &c_family::CSHARP,
+    &c_family::DART,
+    &c_family::PHP,
+];
 
 /// Looks up a language by case-insensitive file extension (without the
 /// leading dot). Returns `None` when no built-in spec matches.
