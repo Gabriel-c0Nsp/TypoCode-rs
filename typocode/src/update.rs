@@ -9,11 +9,11 @@
 //! strict character match, wrong keystrokes stack as extras, backspace
 //! is required to recover, and Tab restarts the run.
 
-use crossterm::event::{Event, KeyCode, KeyEventKind};
+use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 
 use crate::app::Cursor;
 use crate::stats::Keystroke;
-use crate::text::{CellState, Pages};
+use crate::text::{Cell, CellState, Pages};
 
 /// One typing-loop event, normalised across the platform key variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +26,8 @@ pub enum Msg {
     Enter,
     /// Backspace.
     Backspace,
+    /// Ctrl+Backspace — delete one word backwards.
+    WordBackspace,
     /// Tab — restart the current run.
     Tab,
     /// Escape — quit the app.
@@ -54,9 +56,29 @@ pub fn from_key_event(event: &Event) -> Option<Msg> {
     match key.code {
         KeyCode::Esc => Some(Msg::Quit),
         KeyCode::Tab => Some(Msg::Tab),
+        KeyCode::Backspace if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Msg::WordBackspace)
+        }
         KeyCode::Backspace => Some(Msg::Backspace),
         KeyCode::Enter => Some(Msg::Enter),
         KeyCode::Char(' ') => Some(Msg::Space),
+        // Some terminals (notably Windows ConPTY in legacy mode and a few
+        // *nix emulators) deliver Ctrl+Backspace as a raw control byte
+        // rather than as `Backspace + CONTROL`. Map the two known glyphs —
+        // `^H` (0x08) and DEL (0x7F) when Ctrl is held — to the same
+        // word-delete message so the shortcut feels consistent across
+        // platforms. A bare `^H` from `Ctrl+H` is also routed here on
+        // purpose: it's the canonical "delete previous word" chord on
+        // those terminals.
+        KeyCode::Char('\x08') => Some(Msg::WordBackspace),
+        KeyCode::Char('h') | KeyCode::Char('H')
+            if key.modifiers.contains(KeyModifiers::CONTROL) =>
+        {
+            Some(Msg::WordBackspace)
+        }
+        KeyCode::Char('\x7f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Msg::WordBackspace)
+        }
         KeyCode::Char(c) => Some(Msg::Char(c)),
         _ => None,
     }
@@ -86,6 +108,10 @@ pub fn update(pages: &mut Pages, cursor: &mut Cursor, msg: Msg) -> UpdateOutcome
         },
         Msg::Backspace => {
             handle_backspace(pages, cursor);
+            UpdateOutcome::default()
+        }
+        Msg::WordBackspace => {
+            handle_word_backspace(pages, cursor);
             UpdateOutcome::default()
         }
         Msg::Enter => UpdateOutcome {
@@ -205,6 +231,91 @@ fn handle_backspace(pages: &mut Pages, cursor: &mut Cursor) {
 
     cursor.cu_ptr -= 1;
     page.cells[cursor.cu_ptr].state = CellState::Pending;
+}
+
+/// Character category used by the Ctrl+Backspace word-boundary scan.
+///
+/// Matches the convention shared by VS Code, IntelliJ and the GNU
+/// readline `unix-word-rubout` family: alphanumerics plus `_` form one
+/// class, whitespace another, and every remaining punctuation /
+/// delimiter symbol is grouped together. Lumping symbols into a single
+/// class means runs like `"=>"`, `"::"` or `"})"` peel off in one chunk
+/// — that's the familiar IDE behaviour the FR asks for, not
+/// invented-here semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CharClass {
+    Word,
+    Whitespace,
+    Symbol,
+}
+
+fn classify(ch: char) -> CharClass {
+    if ch.is_whitespace() {
+        CharClass::Whitespace
+    } else if ch == '_' || ch.is_alphanumeric() {
+        CharClass::Word
+    } else {
+        CharClass::Symbol
+    }
+}
+
+/// Returns the index the cursor should land on when deleting one word
+/// backwards from `start` over `cells`.
+///
+/// The algorithm — `wordLeft` in VS Code / `backward-kill-word` in
+/// readline — runs in two phases. First it eats any trailing whitespace
+/// (so `Ctrl+Backspace` at the end of `"foo   "` removes both the run
+/// of spaces and the word), then it consumes one contiguous run of the
+/// resulting class. Newlines participate as whitespace, matching how
+/// the same shortcut crosses lines in mainstream editors.
+fn word_boundary_back(cells: &[Cell], start: usize) -> usize {
+    if start == 0 {
+        return 0;
+    }
+    let mut idx = start.min(cells.len());
+    while idx > 0 && matches!(classify(cells[idx - 1].ch), CharClass::Whitespace) {
+        idx -= 1;
+    }
+    if idx == 0 {
+        return 0;
+    }
+    let cls = classify(cells[idx - 1].ch);
+    while idx > 0 && classify(cells[idx - 1].ch) == cls {
+        idx -= 1;
+    }
+    idx
+}
+
+/// Handles Ctrl+Backspace — the IDE-style "delete word" shortcut.
+///
+/// Pending extras represent the player's most recent run of wrong
+/// keystrokes; treating the whole buffer as a single word lets a
+/// single chord clear a botched attempt without the player having to
+/// hold plain Backspace. With no extras pending the cursor rewinds
+/// over one word inside the current page, reverting every cell it
+/// crosses back to [`CellState::Pending`]. At the start of a non-first
+/// page the chord falls through to the same cross-page behaviour as a
+/// single Backspace so the player can keep going backwards naturally.
+fn handle_word_backspace(pages: &mut Pages, cursor: &mut Cursor) {
+    if !cursor.extras.is_empty() {
+        cursor.extras.clear();
+        return;
+    }
+
+    if cursor.cu_ptr == 0 {
+        if pages.current_index() > 1 {
+            pages.prev();
+            cursor.cu_ptr = pages.current().cells.len();
+        }
+        return;
+    }
+
+    let page = pages.current_mut();
+    let target = word_boundary_back(&page.cells, cursor.cu_ptr);
+    for idx in target..cursor.cu_ptr {
+        page.cells[idx].state = CellState::Pending;
+    }
+    cursor.cu_ptr = target;
 }
 
 /// Handles an Enter keystroke.
@@ -646,6 +757,128 @@ mod tests {
         let mut pages = make_pages("abc");
         let mut cursor = Cursor::default();
         let outcome = update(&mut pages, &mut cursor, Msg::Tab);
+        assert_eq!(outcome.keystroke, None);
+    }
+
+    #[test]
+    fn word_backspace_clears_entire_extras_buffer() {
+        let mut pages = make_pages("abc");
+        let mut cursor = Cursor::default();
+        update(&mut pages, &mut cursor, Msg::Char('x'));
+        update(&mut pages, &mut cursor, Msg::Char('y'));
+        update(&mut pages, &mut cursor, Msg::Char('z'));
+        assert_eq!(cursor.extras, vec!['x', 'y', 'z']);
+
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        assert!(cursor.extras.is_empty());
+        assert_eq!(cursor.cu_ptr, 0);
+    }
+
+    #[test]
+    fn word_backspace_deletes_alphanumeric_word() {
+        let mut pages = make_pages("hello world");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 11);
+
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        assert_eq!(cursor.cu_ptr, 6);
+        for i in 6..11 {
+            assert_eq!(pages.current().cells[i].state, CellState::Pending);
+        }
+        assert_eq!(pages.current().cells[5].state, CellState::Correct);
+    }
+
+    #[test]
+    fn word_backspace_stops_at_punctuation_then_eats_punct_run() {
+        // "foo.bar" — first ctrl+bs removes "bar" (stops at `.`),
+        // second removes ".".
+        let mut pages = make_pages("foo.bar");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 7);
+
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        assert_eq!(cursor.cu_ptr, 4);
+
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        assert_eq!(cursor.cu_ptr, 3);
+
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        assert_eq!(cursor.cu_ptr, 0);
+    }
+
+    #[test]
+    fn word_backspace_groups_symbol_runs() {
+        // "a => b" — at start of "b", ctrl+bs eats the leading whitespace
+        // and both "=>" chars as a single chunk.
+        let mut pages = make_pages("a => b");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 5);
+        assert_eq!(cursor.cu_ptr, 5);
+
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        assert_eq!(cursor.cu_ptr, 2);
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        assert_eq!(cursor.cu_ptr, 0);
+    }
+
+    #[test]
+    fn word_backspace_eats_trailing_whitespace_before_word() {
+        // "foo    bar" — at end, ctrl+bs eats spaces and "bar" together.
+        let mut pages = make_pages("foo   bar");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 9);
+
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        // Eats nothing trailing (b is word), then "bar".
+        assert_eq!(cursor.cu_ptr, 6);
+
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        // Eats 3 spaces, then "foo".
+        assert_eq!(cursor.cu_ptr, 0);
+    }
+
+    #[test]
+    fn word_backspace_crosses_newline_through_whitespace() {
+        // Auto-skip leaves cursor at 'b' in "a\n  b" with all-prefix Correct.
+        let mut pages = make_pages("a\n  b");
+        let mut cursor = Cursor::default();
+        for i in 0..4 {
+            pages.current_mut().cells[i].state = CellState::Correct;
+        }
+        cursor.cu_ptr = 4;
+
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        // Newline + 2 spaces are whitespace, gobbled together; then "a".
+        assert_eq!(cursor.cu_ptr, 0);
+        for i in 0..4 {
+            assert_eq!(pages.current().cells[i].state, CellState::Pending);
+        }
+    }
+
+    #[test]
+    fn word_backspace_at_origin_of_non_first_page_steps_back_one_page() {
+        let mut pages = make_two_pages();
+        let mut cursor = Cursor::default();
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        assert_eq!(pages.current_index(), 1);
+        assert_eq!(cursor.cu_ptr, pages.current().cells.len());
+    }
+
+    #[test]
+    fn word_backspace_at_origin_of_first_page_is_noop() {
+        let mut pages = make_pages("abc");
+        let mut cursor = Cursor::default();
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        assert_eq!(cursor.cu_ptr, 0);
+        assert!(cursor.extras.is_empty());
+    }
+
+    #[test]
+    fn word_backspace_is_never_counted() {
+        let mut pages = make_pages("abc");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 3);
+        let outcome = update(&mut pages, &mut cursor, Msg::WordBackspace);
         assert_eq!(outcome.keystroke, None);
     }
 
