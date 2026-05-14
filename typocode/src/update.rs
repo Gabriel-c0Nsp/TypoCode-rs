@@ -286,21 +286,20 @@ fn word_boundary_back(cells: &[Cell], start: usize) -> usize {
     idx
 }
 
-/// Handles Ctrl+Backspace — the IDE-style "delete word" shortcut.
+/// Handles Ctrl+Backspace — a deliberately punishing "delete word"
+/// shortcut.
 ///
-/// Pending extras represent the player's most recent run of wrong
-/// keystrokes; treating the whole buffer as a single word lets a
-/// single chord clear a botched attempt without the player having to
-/// hold plain Backspace. With no extras pending the cursor rewinds
-/// over one word inside the current page, reverting every cell it
-/// crosses back to [`CellState::Pending`]. At the start of a non-first
-/// page the chord falls through to the same cross-page behaviour as a
-/// single Backspace so the player can keep going backwards naturally.
+/// Unlike a stock editor, the chord both flushes the pending extras
+/// buffer **and** rewinds over the preceding word inside the cells,
+/// even when that word was typed correctly. The combined view —
+/// already-correct prefix plus the wrong tail piled in `extras` — is
+/// the player's current attempt at the source word; collapsing both
+/// in one chord makes the shortcut a real recovery cost instead of a
+/// free undo, which is the design call for the typing game. At the
+/// start of a non-first page the chord falls through to the same
+/// cross-page step as a single Backspace.
 fn handle_word_backspace(pages: &mut Pages, cursor: &mut Cursor) {
-    if !cursor.extras.is_empty() {
-        cursor.extras.clear();
-        return;
-    }
+    cursor.extras.clear();
 
     if cursor.cu_ptr == 0 {
         if pages.current_index() > 1 {
@@ -772,6 +771,34 @@ mod tests {
         update(&mut pages, &mut cursor, Msg::WordBackspace);
         assert!(cursor.extras.is_empty());
         assert_eq!(cursor.cu_ptr, 0);
+    }
+
+    #[test]
+    fn word_backspace_deletes_correct_prefix_along_with_extras() {
+        // Expected "local function(num1, num2)"; player typed
+        // "local funcition(num2". The first 10 cells ("local func")
+        // are Correct, the wrong tail "ition(num2" lives in extras.
+        // Ctrl+Backspace wipes both: the extras buffer and the
+        // already-correct "func" word, leaving the cursor right after
+        // "local ".
+        let mut pages = make_pages("local function(num1, num2)");
+        let mut cursor = Cursor::default();
+        mark_correct(&mut pages, &mut cursor, 10);
+        for ch in "ition(num2".chars() {
+            update(&mut pages, &mut cursor, Msg::Char(ch));
+        }
+        assert_eq!(cursor.cu_ptr, 10);
+        assert!(!cursor.extras.is_empty());
+
+        update(&mut pages, &mut cursor, Msg::WordBackspace);
+        assert!(cursor.extras.is_empty());
+        assert_eq!(cursor.cu_ptr, 6);
+        for i in 0..6 {
+            assert_eq!(pages.current().cells[i].state, CellState::Correct);
+        }
+        for i in 6..10 {
+            assert_eq!(pages.current().cells[i].state, CellState::Pending);
+        }
     }
 
     #[test]
