@@ -64,10 +64,10 @@ fn styled_span(cell: &Cell) -> Span<'static> {
 
 /// Draws the pending wrong-keystroke buffer on top of the rendered
 /// body. Each extra visually sits at the cell index `cu_ptr + i`
-/// (char-wrapped like the body). Space and newline inputs render as
-/// `_` so the player can see that a special key was pressed in the
-/// wrong place — matching the C version's underscore glyph. Extras
-/// are painted red (FR-03) so wrong keystrokes stand out.
+/// (char-wrapped like the body). Space inputs render as `␣` (U+2423)
+/// and newline inputs as `⏎` (U+23CE) so the player sees which
+/// special key was pressed in the wrong place. Extras are painted
+/// red (FR-03) so wrong keystrokes stand out.
 fn draw_extras_overlay(frame: &mut Frame, body_area: Rect, page: &Page, cursor: &Cursor) {
     if cursor.extras.is_empty() || body_area.width == 0 {
         return;
@@ -82,7 +82,8 @@ fn draw_extras_overlay(frame: &mut Frame, body_area: Rect, page: &Page, cursor: 
             continue;
         }
         let display = match ex {
-            ' ' | '\n' => '_',
+            ' ' => '␣',  // U+2423
+            '\n' => '⏎', // U+23CE
             c => c,
         };
         if let Some(cell) = buf.cell_mut((x, y)) {
