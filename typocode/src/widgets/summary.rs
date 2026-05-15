@@ -13,6 +13,9 @@ use ratatui::{
 /// the typed body underneath so the summary is always legible even on
 /// dense source files.
 pub fn render(frame: &mut Frame, body_area: Rect, elapsed: &str, accuracy: u8) {
+    let accuracy_value = format!("{accuracy}%");
+    let label_w = "Accuracy:".len();
+    let value_w = elapsed.len().max(accuracy_value.len());
     let lines = [
         Line::from(Span::styled(
             "Run complete!",
@@ -21,8 +24,11 @@ pub fn render(frame: &mut Frame, body_area: Rect, elapsed: &str, accuracy: u8) {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(format!("Time:     {elapsed}")),
-        Line::from(format!("Accuracy: {accuracy}%")),
+        Line::from(format!("{:<label_w$}  {:>value_w$}", "Time:", elapsed)),
+        Line::from(format!(
+            "{:<label_w$}  {:>value_w$}",
+            "Accuracy:", accuracy_value
+        )),
         Line::from(""),
         Line::from(Span::styled(
             "Tab to restart   Esc to quit",
