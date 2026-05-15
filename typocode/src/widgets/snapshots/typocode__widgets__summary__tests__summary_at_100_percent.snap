@@ -1,0 +1,14 @@
+---
+source: src/widgets/summary.rs
+assertion_line: 98
+expression: "render_summary(\"00:12\", 100)"
+---
+                                        
+    ┌ summary ─────────────────────┐    
+    │         Run complete!        │    
+    │                              │    
+    │       Time:      00:12       │    
+    │       Accuracy:   100%       │    
+    │                              │    
+    │ Tab to restart   Esc to quit │    
+    └──────────────────────────────┘
