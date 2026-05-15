@@ -82,9 +82,9 @@ fn draw_extras_overlay(frame: &mut Frame, body_area: Rect, page: &Page, cursor: 
             continue;
         }
         let display = match ex {
-            ' '  => '␣', // U+2423
+            ' ' => '␣',  // U+2423
             '\n' => '⏎', // U+23CE
-            c    => c,
+            c => c,
         };
         if let Some(cell) = buf.cell_mut((x, y)) {
             cell.set_char(display);
