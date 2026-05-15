@@ -206,5 +206,25 @@ mod tests {
         insta::assert_snapshot!(render_frame(&mut app, 20, 5));
     }
 
+    #[test]
+    fn wrong_space_renders_space_glyph() {
+        // Expected first char is 'f'; pressing Space pushes ' ' as an extra,
+        // which the body overlay paints as '␣' (U+2423).
+        let mut app = app_with_source("hello.rs", "fn main() {\n    println!(\"hi\");\n}\n");
+        app.ensure_paginated(4, 36);
+        app.dispatch(Msg::Space);
+        insta::assert_snapshot!(render_frame(&mut app, 40, 10));
+    }
+
+    #[test]
+    fn wrong_enter_renders_newline_glyph() {
+        // Expected first char is 'f'; pressing Enter pushes '\n' as an extra,
+        // which the body overlay paints as '⏎' (U+23CE).
+        let mut app = app_with_source("hello.rs", "fn main() {\n    println!(\"hi\");\n}\n");
+        app.ensure_paginated(4, 36);
+        app.dispatch(Msg::Enter);
+        insta::assert_snapshot!(render_frame(&mut app, 40, 10));
+    }
+
     use crate::update::Msg;
 }
