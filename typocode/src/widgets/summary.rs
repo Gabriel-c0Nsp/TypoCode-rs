@@ -13,6 +13,9 @@ use ratatui::{
 /// the typed body underneath so the summary is always legible even on
 /// dense source files.
 pub fn render(frame: &mut Frame, body_area: Rect, elapsed: &str, accuracy: u8) {
+    let accuracy_value = format!("{accuracy}%");
+    let label_w = "Accuracy:".len();
+    let value_w = elapsed.len().max(accuracy_value.len());
     let lines = [
         Line::from(Span::styled(
             "Run complete!",
@@ -21,8 +24,11 @@ pub fn render(frame: &mut Frame, body_area: Rect, elapsed: &str, accuracy: u8) {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(format!("Time:     {elapsed}")),
-        Line::from(format!("Accuracy: {accuracy}%")),
+        Line::from(format!("{:<label_w$}  {:>value_w$}", "Time:", elapsed)),
+        Line::from(format!(
+            "{:<label_w$}  {:>value_w$}",
+            "Accuracy:", accuracy_value
+        )),
         Line::from(""),
         Line::from(Span::styled(
             "Tab to restart   Esc to quit",
@@ -54,4 +60,56 @@ pub fn render(frame: &mut Frame, body_area: Rect, elapsed: &str, accuracy: u8) {
             .alignment(Alignment::Center),
         area,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+
+    fn buffer_to_string(buf: &Buffer) -> String {
+        let area = buf.area();
+        let mut out = String::new();
+        for y in 0..area.height {
+            for x in 0..area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    fn render_summary(elapsed: &str, accuracy: u8) -> String {
+        let backend = TestBackend::new(40, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render(frame, area, elapsed, accuracy);
+            })
+            .unwrap();
+        buffer_to_string(terminal.backend().buffer())
+    }
+
+    #[test]
+    fn summary_at_100_percent() {
+        insta::assert_snapshot!(render_summary("00:12", 100));
+    }
+
+    #[test]
+    fn summary_at_80_percent() {
+        insta::assert_snapshot!(render_summary("00:12", 80));
+    }
+
+    #[test]
+    fn summary_at_single_digit_accuracy() {
+        insta::assert_snapshot!(render_summary("00:12", 7));
+    }
+
+    #[test]
+    fn summary_at_zero_accuracy() {
+        insta::assert_snapshot!(render_summary("00:12", 0));
+    }
 }
