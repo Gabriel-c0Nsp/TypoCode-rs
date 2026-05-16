@@ -13,6 +13,9 @@
 //!
 //! The post-pass is what turns `// header\n` into nothing at all,
 //! instead of an empty line the player would have to Enter through.
+//! It also drops blank separator lines that immediately follow a
+//! removed leading comment block, so the run opens on the first real
+//! code line instead of a blank row.
 
 use super::spec::{BlockComment, LanguageSpec, StringLiteral};
 
@@ -281,6 +284,8 @@ fn emit(raw: &str, class: &[Class]) -> String {
     let bytes = raw.as_bytes();
     let mut line_start = 0;
     let mut i = 0;
+    let mut removed_leading_comment = false;
+    let mut seen_emitted_content = false;
     loop {
         let at_eof = i == bytes.len();
         let at_newline = !at_eof && bytes[i] == b'\n';
@@ -291,13 +296,25 @@ fn emit(raw: &str, class: &[Class]) -> String {
 
             let kept = filter_code(raw, class, line_start, i);
             let trimmed_end = kept.trim_end();
+            let line_is_empty = trimmed_end.is_empty();
 
-            if had_comment && trimmed_end.is_empty() {
+            if had_comment && line_is_empty {
                 // Drop the whole line, newline included.
+                if !seen_emitted_content {
+                    removed_leading_comment = true;
+                }
+            } else if line_is_empty && removed_leading_comment && !seen_emitted_content {
+                // Drop blank separators that sat between a stripped
+                // leading comment block and the first real code line —
+                // otherwise the run would open on a blank row the
+                // player must Enter through before reaching code.
             } else {
                 out.push_str(trimmed_end);
                 if at_newline {
                     out.push('\n');
+                }
+                if !line_is_empty {
+                    seen_emitted_content = true;
                 }
             }
 
@@ -614,5 +631,59 @@ mod tests {
     fn utf8_content_preserved() {
         let input = "// café\nlet x = \"naïve\";\n";
         assert_eq!(strip(input, &c_like()), "let x = \"naïve\";\n");
+    }
+
+    #[test]
+    fn strips_inner_comments_when_no_leading_comments_present() {
+        let input = "fn main() {\n    // inner\n    body();\n}\n";
+        assert_eq!(strip(input, &c_like()), "fn main() {\n    body();\n}\n");
+    }
+
+    #[test]
+    fn drops_blank_after_leading_line_comment() {
+        let input = "// header\n\nfn main() {}\n";
+        assert_eq!(strip(input, &c_like()), "fn main() {}\n");
+    }
+
+    #[test]
+    fn drops_blank_after_leading_comment_block() {
+        let input = "// a\n// b\n// c\n\nfn main() {}\n";
+        assert_eq!(strip(input, &c_like()), "fn main() {}\n");
+    }
+
+    #[test]
+    fn drops_blank_after_leading_block_comment() {
+        let input = "/* header */\n\nfn main() {}\n";
+        assert_eq!(strip(input, &c_like()), "fn main() {}\n");
+    }
+
+    #[test]
+    fn leading_comment_without_separator_still_clean() {
+        let input = "// header\nfn main() {}\n";
+        assert_eq!(strip(input, &c_like()), "fn main() {}\n");
+    }
+
+    #[test]
+    fn drops_multiple_blanks_after_leading_comment() {
+        let input = "// header\n\n\n\nfn main() {}\n";
+        assert_eq!(strip(input, &c_like()), "fn main() {}\n");
+    }
+
+    #[test]
+    fn preserves_leading_blanks_when_no_leading_comment() {
+        let input = "\n\nfn main() {}\n";
+        assert_eq!(strip(input, &c_like()), "\n\nfn main() {}\n");
+    }
+
+    #[test]
+    fn preserves_pre_comment_blank_but_drops_post_comment_blank() {
+        let input = "\n// header\n\nfn main() {}\n";
+        assert_eq!(strip(input, &c_like()), "\nfn main() {}\n");
+    }
+
+    #[test]
+    fn all_leading_comments_yields_empty() {
+        let input = "// just\n// comments\n";
+        assert_eq!(strip(input, &c_like()), "");
     }
 }
