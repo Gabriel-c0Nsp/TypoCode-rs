@@ -282,4 +282,24 @@ mod tests {
         assert!(text.contains("keep"));
         let _ = fs::remove_file(&path);
     }
+
+    #[test]
+    fn load_with_strip_comments_drops_leading_comment_and_separator() {
+        let path = write_temp_file("leading.rs", "// header\n\nfn main() {\n    body();\n}\n");
+        let source = load(
+            &path,
+            LoadOptions {
+                strip_comments: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            source.content.first(),
+            Some(&'f'),
+            "expected first cell to be code, got: {:?}",
+            source.content.first()
+        );
+        assert_ne!(source.content.first(), Some(&'\n'));
+        let _ = fs::remove_file(&path);
+    }
 }
