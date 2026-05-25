@@ -1,0 +1,6 @@
+---
+source: src/widgets/footer.rs
+assertion_line: 72
+expression: "render_footer(\"01:23\", 95, 78)"
+---
+Page: 1/3  01:23  95%  78 WPM

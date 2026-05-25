@@ -79,19 +79,23 @@ fn render_framed(app: &mut App, frame: &mut Frame, area: Rect, gutter_width: u16
     gutter::render(frame, gutter_area, page, body_area.width, gutter_width);
     let (cursor_col, cursor_row) = body::render(frame, body_area, page, &app.cursor);
 
-    let elapsed = format_mm_ss(app.stopwatch.elapsed(Instant::now()));
+    let now = Instant::now();
+    let elapsed_duration = app.stopwatch.elapsed(now);
+    let elapsed = format_mm_ss(elapsed_duration);
     let accuracy = app.stats.accuracy_percent();
+    let wpm = app.stats.wpm(elapsed_duration);
     footer::render(
         frame,
         footer_content,
         &elapsed,
         accuracy,
+        wpm,
         pages.current_index(),
         pages.total(),
     );
 
     if app.phase == Phase::Finished {
-        summary::render(frame, body_area, &elapsed, accuracy);
+        summary::render(frame, body_area, &elapsed, accuracy, wpm);
         return;
     }
 
@@ -116,19 +120,23 @@ fn render_plain(app: &mut App, frame: &mut Frame, area: Rect, gutter_width: u16)
     gutter::render(frame, gutter_area, page, body_area.width, gutter_width);
     let (cursor_col, cursor_row) = body::render(frame, body_area, page, &app.cursor);
 
-    let elapsed = format_mm_ss(app.stopwatch.elapsed(Instant::now()));
+    let now = Instant::now();
+    let elapsed_duration = app.stopwatch.elapsed(now);
+    let elapsed = format_mm_ss(elapsed_duration);
     let accuracy = app.stats.accuracy_percent();
+    let wpm = app.stats.wpm(elapsed_duration);
     footer::render(
         frame,
         footer_area,
         &elapsed,
         accuracy,
+        wpm,
         pages.current_index(),
         pages.total(),
     );
 
     if app.phase == Phase::Finished {
-        summary::render(frame, body_area, &elapsed, accuracy);
+        summary::render(frame, body_area, &elapsed, accuracy, wpm);
         return;
     }
 
@@ -196,6 +204,11 @@ mod tests {
         for ch in ['f', 'n', 'X'] {
             app.dispatch(Msg::Char(ch));
         }
+        // Stopwatch reset keeps the WPM cell deterministic across runs:
+        // real elapsed between the three dispatches is sub-millisecond
+        // jitter that otherwise turns into a different four-digit WPM
+        // every time the snapshot runs.
+        app.stopwatch.reset();
         insta::assert_snapshot!(render_frame(&mut app, 40, 10));
     }
 
