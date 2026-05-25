@@ -8,6 +8,13 @@
 //!
 //! Accuracy is reported as a rounded percentage so the footer can show
 //! a compact `100%` / `97%` instead of `0.9712…`.
+//!
+//! Words-per-minute follows the SpeedTyper.dev convention: gross WPM =
+//! (correct chars / 5) / elapsed minutes. Only correct keystrokes
+//! contribute, so spamming wrongs never inflates WPM — incorrects show
+//! up through the accuracy figure instead.
+
+use std::time::Duration;
 
 /// Classification of a single typing keystroke, produced by the update
 /// layer and consumed by [`Stats`].
@@ -68,6 +75,21 @@ impl Stats {
         // Rounded integer percent: (correct * 100 + total/2) / total.
         let numerator = self.correct * 100 + total / 2;
         (numerator / total) as u8
+    }
+
+    /// Gross WPM rounded to the nearest whole number. Formula matches
+    /// SpeedTyper.dev: `(correct / 5) / minutes`. Returns 0 while the
+    /// stopwatch is idle or no correct keystrokes have landed yet so the
+    /// footer doesn't divide-by-zero or flash an absurd burst figure on
+    /// the very first keystroke.
+    pub fn wpm(&self, elapsed: Duration) -> u32 {
+        let secs = elapsed.as_secs_f64();
+        if secs <= 0.0 || self.correct == 0 {
+            return 0;
+        }
+        let minutes = secs / 60.0;
+        let wpm = (self.correct as f64 / 5.0) / minutes;
+        wpm.round() as u32
     }
 
     /// Clears both counters.
@@ -142,5 +164,56 @@ mod tests {
         s.reset();
         assert_eq!(s.total(), 0);
         assert_eq!(s.accuracy_percent(), 100);
+    }
+
+    #[test]
+    fn wpm_is_zero_when_elapsed_is_zero() {
+        let mut s = Stats::new();
+        for _ in 0..100 {
+            s.record(Keystroke::Correct);
+        }
+        assert_eq!(s.wpm(Duration::ZERO), 0);
+    }
+
+    #[test]
+    fn wpm_is_zero_with_no_correct_keystrokes() {
+        let mut s = Stats::new();
+        for _ in 0..50 {
+            s.record(Keystroke::Incorrect);
+        }
+        assert_eq!(s.wpm(Duration::from_secs(60)), 0);
+    }
+
+    #[test]
+    fn wpm_uses_correct_chars_only_speedtyper_formula() {
+        // 100 correct + 50 wrong over 60s → (100/5) / 1min = 20 wpm.
+        let mut s = Stats::new();
+        for _ in 0..100 {
+            s.record(Keystroke::Correct);
+        }
+        for _ in 0..50 {
+            s.record(Keystroke::Incorrect);
+        }
+        assert_eq!(s.wpm(Duration::from_secs(60)), 20);
+    }
+
+    #[test]
+    fn wpm_scales_with_short_elapsed_windows() {
+        // 50 correct chars in 10s → (50/5) / (10/60) = 60 wpm.
+        let mut s = Stats::new();
+        for _ in 0..50 {
+            s.record(Keystroke::Correct);
+        }
+        assert_eq!(s.wpm(Duration::from_secs(10)), 60);
+    }
+
+    #[test]
+    fn wpm_rounds_to_nearest_whole() {
+        // 17 correct / 5 / (30/60) = 6.8 → rounds to 7.
+        let mut s = Stats::new();
+        for _ in 0..17 {
+            s.record(Keystroke::Correct);
+        }
+        assert_eq!(s.wpm(Duration::from_secs(30)), 7);
     }
 }
