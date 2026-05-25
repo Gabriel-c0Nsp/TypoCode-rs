@@ -17,10 +17,7 @@ pub fn render(frame: &mut Frame, body_area: Rect, elapsed: &str, accuracy: u8, w
     let accuracy_value = format!("{accuracy}%");
     let wpm_value = format!("{wpm}");
     let label_w = "Accuracy:".len();
-    let value_w = elapsed
-        .len()
-        .max(accuracy_value.len())
-        .max(wpm_value.len());
+    let value_w = elapsed.len().max(accuracy_value.len()).max(wpm_value.len());
     let lines = [
         Line::from(Span::styled(
             "Run complete!",
